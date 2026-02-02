@@ -2432,9 +2432,9 @@ async function proxyChat(req, res) {
         const carryQuery =
           "select e.x, e.y from v_events_full e " +
           "join matches m on e.match_id = m.id " +
-          `where e.player_name ilike '%${safePlayer}%' ` +
+          `where (e.player_name ilike '%${safePlayer}%' or e.player_nickname ilike '%${safePlayer}%') ` +
           seasonClause +
-          "and e.event_name ilike '%carry%'";
+          "and (e.event_name ilike '%carry%' or e.category_name ilike '%carry%')";
         const image = await renderMplSoccerAndLearn(
           {
             chart_type: "shot_map",
@@ -2446,6 +2446,13 @@ async function proxyChat(req, res) {
           lastQuestionRaw,
           memory
         );
+        if (image?.error) {
+          sendAssistantReply(
+            res,
+            `I couldn't find carry events for ${carryMap.player}${carryMap.season ? ` in ${carryMap.season}` : ""}.`
+          );
+          return;
+        }
         sendAssistantReply(res, `Carry map for ${carryMap.player}.`, image);
         return;
       }
