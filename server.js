@@ -1030,6 +1030,17 @@ function parseRandomShotMapPrompt(text) {
   return { team: teamMatch[1].trim(), season: seasonMatch?.[1]?.trim() || null };
 }
 
+function parseCarryMapPrompt(text) {
+  const normalized = normalizePrompt(text);
+  if (!/(carry|carries)/i.test(normalized)) return null;
+  if (!/(shot map|pitch plot|map)/i.test(normalized)) return null;
+  const playerMatch = normalized.match(/carries?\s+that\s+(.+?)\s+made/i) ||
+    normalized.match(/carries?\s+by\s+(.+?)(?:\s+in\s+the\s+|\s+in\s+|\s+from\s+|$)/i);
+  const seasonMatch = normalized.match(/(\d{4}\/\d{4})/);
+  if (!playerMatch) return null;
+  return { player: playerMatch[1].trim(), season: seasonMatch?.[1]?.trim() || null };
+}
+
 function parseGoalsConcededPrompt(text) {
   const normalized = normalizePrompt(text);
   const match = normalized.match(/how many goals did (.+?) concede in the (\d{4}\/\d{4}) season/i);
@@ -2409,6 +2420,32 @@ async function proxyChat(req, res) {
         };
         savePending(pending);
         sendAssistantReply(res, "Which season should I use? (e.g., 2023/2024)");
+        return;
+      }
+
+      const carryMap = parseCarryMapPrompt(lastQuestion);
+      if (carryMap) {
+        const safePlayer = carryMap.player.replace(/'/g, "''");
+        const seasonClause = carryMap.season
+          ? `and season_name = '${carryMap.season.replace(/'/g, "''")}' `
+          : "";
+        const carryQuery =
+          "select x, y from viz_match_events_with_match " +
+          `where player_name ilike '%${safePlayer}%' ` +
+          seasonClause +
+          "and event_name ilike '%carry%'";
+        const image = await renderMplSoccerAndLearn(
+          {
+            chart_type: "shot_map",
+            query: carryQuery,
+            title: `${carryMap.player} carries`,
+            subtitle: carryMap.season ? `Season ${carryMap.season}` : undefined
+          },
+          env,
+          lastQuestionRaw,
+          memory
+        );
+        sendAssistantReply(res, `Carry map for ${carryMap.player}.`, image);
         return;
       }
 
