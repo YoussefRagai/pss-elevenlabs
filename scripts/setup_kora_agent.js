@@ -48,8 +48,9 @@ function request(method, path, body) {
   }
   if (statusCode < 200 || statusCode >= 300) {
     const detail =
-      payload?.detail || payload?.error || payload?.message || JSON.stringify(payload);
-    throw new Error(detail || `HTTP ${statusCode}`);
+      payload?.detail || payload?.error || payload?.message || payload;
+    const message = typeof detail === "string" ? detail : JSON.stringify(detail);
+    throw new Error(message || `HTTP ${statusCode}`);
   }
   return payload;
 }
