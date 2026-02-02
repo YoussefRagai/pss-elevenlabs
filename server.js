@@ -42,6 +42,24 @@ function loadSemanticHints() {
   }
 }
 
+async function getSemanticHints(env) {
+  const semantic = loadSemanticHints() || {};
+  try {
+    const schema = await fetchSchema(env);
+    const tables = schema.tables || [];
+    const snapshot = {
+      updated_at: new Date().toISOString(),
+      tables,
+    };
+    semantic.schema_cache = snapshot;
+    semantic.schema_snapshot = tables;
+    saveJson(SEMANTIC_PATH, semantic);
+  } catch (error) {
+    // keep existing semantic hints if schema fetch fails
+  }
+  return semantic;
+}
+
 function loadJson(path, fallback) {
   try {
     return JSON.parse(fs.readFileSync(path, "utf8"));
@@ -1487,6 +1505,7 @@ async function refreshSchemaCacheOnStartup() {
       updated_at: new Date().toISOString(),
       tables: schema.tables || [],
     };
+    semantic.schema_snapshot = schema.tables || [];
     saveJson(SEMANTIC_PATH, semantic);
   } catch (error) {
     console.warn("Schema cache refresh failed:", error?.message || error);
@@ -3397,7 +3416,7 @@ async function proxyChat(req, res) {
           if (call.function?.name === "get_schema") {
             toolResult = getSchemaResult(args, schema);
           } else if (call.function?.name === "get_semantic_hints") {
-            toolResult = loadSemanticHints() || { error: "No semantic hints found." };
+            toolResult = await getSemanticHints(env);
           } else if (call.function?.name === "query_public_table") {
             toolResult = await queryPublicTable(args, env, schema);
           } else if (call.function?.name === "count_public_table") {
