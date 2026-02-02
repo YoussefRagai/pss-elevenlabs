@@ -153,9 +153,15 @@ async function upsertAgent(toolId) {
 }
 
 async function main() {
-  console.log("Setting up tool...");
-  const toolId = await upsertTool();
-  console.log("Tool ready:", toolId);
+  const toolIdEnv = process.env.ELEVENLABS_TOOL_ID;
+  let toolId = toolIdEnv || "";
+  if (!toolId) {
+    console.log("Setting up tool...");
+    toolId = await upsertTool();
+    console.log("Tool ready:", toolId);
+  } else {
+    console.log("Using existing tool:", toolId);
+  }
   console.log("Setting up agent...");
   const agentId = await upsertAgent(toolId);
   const output = { tool_id: toolId, agent_id: agentId, tool_url: toolUrl };
