@@ -118,8 +118,9 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(240px, 0.28fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 24px;
+  align-items: start;
 }
 
 .panel {
@@ -139,6 +140,34 @@ body {
   gap: 24px;
 }
 
+.chat-popup {
+  position: fixed;
+  right: 32px;
+  top: 140px;
+  width: min(480px, 92vw);
+  max-height: calc(100vh - 180px);
+  display: none;
+  z-index: 10;
+}
+
+body.voice-active .chat-popup {
+  display: grid;
+}
+
+body.voice-active .meta-panel {
+  display: none;
+}
+
+.voice-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-height: 60vh;
+  justify-content: center;
+  gap: 6px;
+}
+
 .voice-panel h2 {
   margin: 0 0 6px;
   font-size: 18px;
@@ -147,22 +176,22 @@ body {
 }
 
 .voice-orb {
-  width: 180px;
-  height: 180px;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
   border: none;
   background: radial-gradient(circle at 30% 30%, rgba(255, 208, 0, 0.7), rgba(0, 60, 113, 0.9));
   display: grid;
   place-items: center;
-  margin: 24px auto 16px;
+  margin: 32px auto 18px;
   position: relative;
   cursor: pointer;
   box-shadow: 0 18px 35px rgba(0, 60, 113, 0.3);
 }
 
 .voice-orb .orb-core {
-  width: 76px;
-  height: 76px;
+  width: 92px;
+  height: 92px;
   border-radius: 50%;
   background: #ffffff;
   opacity: 0.9;
@@ -170,8 +199,8 @@ body {
 
 .voice-orb .orb-ring {
   position: absolute;
-  width: 140px;
-  height: 140px;
+  width: 200px;
+  height: 200px;
   border-radius: 50%;
   border: 2px solid rgba(255, 208, 0, 0.6);
   animation: orbPulse 2.2s ease-in-out infinite;
@@ -313,7 +342,7 @@ body {
   flex-direction: column;
   gap: 14px;
   min-height: 380px;
-  max-height: 60vh;
+  max-height: 48vh;
   overflow-y: auto;
   padding-right: 6px;
 }
@@ -394,6 +423,13 @@ body {
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  .chat-popup {
+    right: 16px;
+    left: 16px;
+    top: 120px;
+    width: auto;
   }
 
   .topbar {
