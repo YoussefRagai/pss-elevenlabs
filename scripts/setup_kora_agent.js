@@ -27,7 +27,7 @@ function request(method, path, body) {
     method,
     url,
     "--max-time",
-    "20",
+    "60",
     "-H",
     `xi-api-key: ${apiKey}`,
     "-H",
