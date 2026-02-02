@@ -119,7 +119,6 @@ async function upsertAgent(toolId) {
         prompt: {
           text: systemPrompt,
           tool_ids: toolId ? [toolId] : [],
-          built_in_tools: ["end_call"],
         },
         llm: {
           model: "eleven-multilingual-v1",
