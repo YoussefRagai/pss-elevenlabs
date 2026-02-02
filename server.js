@@ -121,6 +121,42 @@ function detectMultiTeamPrompt(prompt) {
   return /(\bvs\b|versus|against|comparing|between)/i.test(normalized);
 }
 
+function isDatabaseIntent(prompt) {
+  const normalized = normalizePrompt(prompt).toLowerCase();
+  if (isVisualizationPrompt(normalized)) return true;
+  return /(goal|goals|shot|shots|pass|passes|assist|assists|xg|block|blocks|tackle|tackles|interception|interceptions|foul|fouls|card|cards|corner|corners|match|season|team|player|nickname)/i.test(
+    normalized
+  );
+}
+
+function buildActionPlan(prompt, memory) {
+  const cleaned = stripGreetingPreamble(prompt || "");
+  const params = extractParamsFromPrompt(cleaned, memory);
+  const plan = {
+    intent: isVisualizationPrompt(cleaned)
+      ? "visual"
+      : isDatabaseIntent(cleaned)
+      ? "database"
+      : "general",
+    forceTool: null,
+    summary: "",
+  };
+
+  if (plan.intent === "visual") {
+    plan.forceTool = "render_mplsoccer";
+  } else if (plan.intent === "database") {
+    plan.forceTool = "run_sql_rpc";
+  }
+
+  const entities = [];
+  if (params.team) entities.push(`team=${params.team}`);
+  if (params.team_a && params.team_b) entities.push(`teams=${params.team_a} vs ${params.team_b}`);
+  if (params.season) entities.push(`season=${params.season}`);
+  if (params.last_n) entities.push(`last_n=${params.last_n}`);
+  plan.summary = `intent=${plan.intent}${entities.length ? `; ${entities.join("; ")}` : ""}`;
+  return plan;
+}
+
 function isLearnedTemplateCompatible(prompt, template, memory) {
   if (!template) return false;
   if (!detectMultiTeamPrompt(prompt || "")) return true;
@@ -2606,6 +2642,8 @@ async function proxyChat(req, res) {
         setLastTeams(memory, baseParams.team_a, baseParams.team_b);
       }
 
+      const actionPlan = buildActionPlan(lastQuestionRaw, memory);
+
       const arrowsRequested = /arrow|arrows|trajectory|trajector|direction/i.test(lastQuestionRaw);
       if (arrowsRequested) {
         const lastPass = getLastPassMap(memory);
@@ -3379,7 +3417,17 @@ async function proxyChat(req, res) {
         return;
       }
       let messages = [mcpSystem, ...(payload.messages || [])];
-      const forceVisualizationTool = isVisualizationPrompt(lastQuestionRaw);
+      if (actionPlan?.summary) {
+        messages = [
+          ...messages,
+          {
+            role: "system",
+            content: `ACTION PLAN: ${actionPlan.summary}. If intent is database, you must call run_sql_rpc. If intent is visual, you must call render_mplsoccer.`,
+          },
+        ];
+      }
+      const forceToolName = actionPlan?.forceTool || null;
+      const forceVisualizationTool = forceToolName === "render_mplsoccer";
 
       let response = await callOpenRouter(
         {
@@ -3389,8 +3437,8 @@ async function proxyChat(req, res) {
           stream: false,
           messages,
           tools,
-          tool_choice: forceVisualizationTool
-            ? { type: "function", function: { name: "render_mplsoccer" } }
+          tool_choice: forceToolName
+            ? { type: "function", function: { name: forceToolName } }
             : "auto",
         },
         apiKey
