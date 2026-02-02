@@ -6,6 +6,7 @@ const statusLabel = document.getElementById("voiceStatus");
 
 let conversation = null;
 let active = false;
+let lastTranscript = "";
 
 function setStatus(text, tone = "idle") {
   statusLabel.textContent = text;
@@ -29,6 +30,18 @@ async function startConversation() {
   conversation = await Conversation.startSession({
     conversationToken: token,
     connectionType: "webrtc",
+    onMessage: (message) => {
+      const source = message?.source || message?.role;
+      const text =
+        message?.message || message?.text || message?.content || message?.transcript || "";
+      const isFinal = message?.is_final ?? message?.isFinal ?? true;
+      if (source === "user" && isFinal && text && text !== lastTranscript) {
+        lastTranscript = text;
+        if (window.handleVoiceInput) {
+          window.handleVoiceInput(text);
+        }
+      }
+    },
     onConnect: () => {
       setStatus("Listening…", "active");
     },

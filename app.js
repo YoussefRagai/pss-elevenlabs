@@ -20,6 +20,7 @@ const state = {
   messages: [],
   busy: false,
 };
+const pendingInputs = [];
 
 function renderMessage(role, content) {
   const bubble = document.createElement("div");
@@ -120,17 +121,14 @@ function lockComposer(locked) {
   composer.querySelector("button").disabled = locked;
 }
 
-composer.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (state.busy) return;
-
-  const content = userInput.value.trim();
-  if (!content) return;
-
+async function processUserMessage(content) {
+  if (state.busy) {
+    pendingInputs.push(content);
+    return;
+  }
   const userMessage = { role: "user", content };
   state.messages.push(userMessage);
   renderMessage("user", content);
-  userInput.value = "";
   saveChat();
 
   const thinking = renderMessage("system", "Running query...");
@@ -156,7 +154,22 @@ composer.addEventListener("submit", async (event) => {
     renderMessage("system", error.message);
   } finally {
     lockComposer(false);
+    if (pendingInputs.length) {
+      const next = pendingInputs.shift();
+      if (next) processUserMessage(next);
+    }
   }
+}
+
+composer.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (state.busy) return;
+
+  const content = userInput.value.trim();
+  if (!content) return;
+
+  userInput.value = "";
+  processUserMessage(content);
 });
 
 clearChatBtn.addEventListener("click", () => {
@@ -181,3 +194,9 @@ loadSettings();
 loadChat();
 renderMessages();
 setEnvStatus();
+
+window.handleVoiceInput = (text) => {
+  const content = String(text || "").trim();
+  if (!content) return;
+  processUserMessage(content);
+};
