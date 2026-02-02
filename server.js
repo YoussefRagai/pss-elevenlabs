@@ -386,6 +386,10 @@ async function renderMplSoccerAndLearn(params, env, prompt, memory) {
   const image = await renderMplSoccer(params, env);
   if (image?.image_base64) {
     maybeLearnTemplateFromArgs(params, prompt, memory);
+    const analysis = await analyzeVisualization(prompt, image, env.OPENROUTER_API_KEY);
+    if (analysis) {
+      image.analysis_text = analysis;
+    }
   }
   return image;
 }
@@ -477,16 +481,25 @@ function sendJson(res, status, payload) {
 }
 
 function sendAssistantReply(res, content, image) {
+  let finalContent = content;
+  let cleanedImage = image;
+  if (image && typeof image === "object") {
+    const { analysis_text, data_preview, ...rest } = image;
+    cleanedImage = rest;
+    if (analysis_text) {
+      finalContent = `${content}\n\nAnalysis:\n${analysis_text}`;
+    }
+  }
   sendJson(res, 200, {
     choices: [
       {
         message: {
           role: "assistant",
-          content,
+          content: finalContent,
         },
       },
     ],
-    image,
+    image: cleanedImage,
   });
 }
 
@@ -1214,6 +1227,54 @@ async function callOpenRouter(payload, apiKey, retries = 2, fallbackModel = "moo
   }
 }
 
+function buildAnalysisPrompt(userPrompt, dataPreview, rowCount) {
+  let dataText = JSON.stringify(dataPreview || []);
+  let truncated = false;
+  if (dataText.length > 6000) {
+    dataText = dataText.slice(0, 6000);
+    truncated = true;
+  }
+  const sampleNote =
+    rowCount && dataPreview && rowCount > dataPreview.length
+      ? `Sample of ${dataPreview.length} rows from ${rowCount} total rows.`
+      : `Rows provided: ${dataPreview?.length || 0}.`;
+  return [
+    `User request: ${userPrompt}`,
+    sampleNote,
+    truncated ? "Data preview is truncated." : "Data preview below.",
+    `Data: ${dataText}`,
+  ].join("\n");
+}
+
+async function analyzeVisualization(userPrompt, image, apiKey) {
+  if (!apiKey || !image?.data_preview?.length) return null;
+  const prompt = buildAnalysisPrompt(
+    userPrompt,
+    image.data_preview,
+    image.row_count || image.data_preview.length
+  );
+  const response = await callOpenRouter(
+    {
+      model: "moonshotai/kimi-k2:free",
+      temperature: 0.3,
+      max_tokens: 350,
+      stream: false,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Keep it under 6 sentences.",
+        },
+        { role: "user", content: prompt },
+      ],
+    },
+    apiKey,
+    1,
+    null
+  );
+  return response?.choices?.[0]?.message?.content?.trim() || null;
+}
+
 async function fetchSchema(env) {
   const now = Date.now();
   if (schemaCache.data && now - schemaCache.loadedAt < SCHEMA_TTL_MS) {
@@ -1619,6 +1680,7 @@ async function renderMplSoccer(params, env) {
     data = result.data || [];
   }
 
+  const dataPreview = Array.isArray(data) ? data.slice(0, 200) : [];
   const normalized = normalizeChartData(chartType, data, params);
 
   const response = await fetch(env.MPLSOCCER_URL, {
@@ -1655,6 +1717,7 @@ async function renderMplSoccer(params, env) {
     image_base64: payload.image_base64,
     mime: payload.mime || "image/png",
     row_count: data.length,
+    data_preview: dataPreview,
   };
 }
 
@@ -3088,6 +3151,10 @@ async function proxyChat(req, res) {
               return;
             }
             if (toolResult?.image_base64) {
+              const analysis = await analyzeVisualization(lastQuestionRaw, toolResult, apiKey);
+              if (analysis) {
+                toolResult.analysis_text = analysis;
+              }
               imageAttachment = toolResult;
               visualizationHandled = true;
               maybeLearnTemplateFromArgs(args, lastQuestionRaw, memory);
