@@ -31,6 +31,11 @@ def register_fonts():
 
 register_fonts()
 
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 PSS_COLORS = ["#2E7D6D", "#003C71", "#FFD000", "#1F2E3D"]
 SHOT_SHAPES = {
     "penalty": "s",

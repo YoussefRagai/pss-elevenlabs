@@ -2091,6 +2091,74 @@ function serveFile(req, res) {
   });
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+async function handleHealth(req, res) {
+  const env = parseEnvFile();
+  const results = {
+    openrouter: { ok: false },
+    supabase: { ok: false },
+    mplsoccer: { ok: false },
+  };
+
+  if (env.OPENROUTER_API_KEY) {
+    try {
+      const response = await fetchWithTimeout("https://openrouter.ai/api/v1/models", {
+        headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}` },
+      });
+      results.openrouter.ok = response.ok;
+      results.openrouter.status = response.status;
+    } catch (error) {
+      results.openrouter.error = error.message || String(error);
+    }
+  } else {
+    results.openrouter.error = "Missing OPENROUTER_API_KEY";
+  }
+
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/`, {
+        headers: {
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          Accept: "application/openapi+json",
+        },
+      });
+      results.supabase.ok = response.ok;
+      results.supabase.status = response.status;
+    } catch (error) {
+      results.supabase.error = error.message || String(error);
+    }
+  } else {
+    results.supabase.error = "Missing Supabase credentials";
+  }
+
+  if (env.MPLSOCCER_URL) {
+    try {
+      const baseUrl = env.MPLSOCCER_URL.replace(/\/render\/?$/, "");
+      const response = await fetchWithTimeout(`${baseUrl}/health`);
+      results.mplsoccer.ok = response.ok;
+      results.mplsoccer.status = response.status;
+    } catch (error) {
+      results.mplsoccer.error = error.message || String(error);
+    }
+  } else {
+    results.mplsoccer.error = "Missing MPLSOCCER_URL";
+  }
+
+  const allOk = results.openrouter.ok && results.supabase.ok && results.mplsoccer.ok;
+  sendJson(res, allOk ? 200 : 503, { status: allOk ? "ok" : "degraded", services: results });
+}
+
 async function proxyChat(req, res) {
   const env = parseEnvFile();
   const apiKey = env.OPENROUTER_API_KEY;
@@ -2826,6 +2894,13 @@ async function proxyChat(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith("/api/health")) {
+    handleHealth(req, res).catch((error) =>
+      sendJson(res, 500, { status: "error", error: error.message || String(error) })
+    );
+    return;
+  }
+
   if (req.url.startsWith("/api/schema")) {
     const env = parseEnvFile();
     fetchSchema(env)
