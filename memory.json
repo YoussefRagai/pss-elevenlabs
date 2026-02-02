@@ -1,0 +1,79 @@
+{
+  "aliases": {
+    "Afsha": {
+      "type": "player_nickname",
+      "value": "Mohamed Magdy Mohamed Morsy"
+    },
+    "Zamalek": {
+      "type": "team_name",
+      "value": "Zamalek"
+    },
+    "Al Ahly": {
+      "type": "team_name",
+      "value": "Al Ahly FC"
+    },
+    "Pyramids": {
+      "type": "team_name",
+      "value": "Pyramids FC"
+    },
+    "Zamalek and draw me all of their successful passes on a pitch": {
+      "type": "team_name",
+      "value": "Zamalek and draw me all of their successful passes on a pitch"
+    },
+    "name": {
+      "type": "player_name",
+      "value": "Pick a random match for Zamalek and draw me all of their successful passes on a pitch"
+    },
+    "each team in a different color)": {
+      "type": "player_name",
+      "value": "No, that's an instruction for the visual"
+    },
+    "any sorts did he do": {
+      "type": "player_name",
+      "value": "No, I mean how many errors did Mohamed Abdel Moneim do"
+    },
+    "all passes": {
+      "type": "player_name",
+      "value": "Show me all the successful passes that Al Ahly took in a random match (the passes should be as arrows)"
+    }
+  },
+  "scopes": {
+    "last_entity": "all passes",
+    "show a shot map comparing al ahly fc and pyramids fc.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a pass map for afsha.": {
+      "season": "2023/2024",
+      "opponent": "home"
+    },
+    "show a heatmap comparing al ahly fc and pyramids fc.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a pass network for al ahly fc.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a vertical half-pitch shot map for al ahly fc.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a pass map comparing al ahly fc and pyramids fc.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a pitch plot of al ahly fc successful passes.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a horizontal full-pitch shot map for al ahly fc.": {
+      "season": "2023/2024",
+      "opponent": "no"
+    },
+    "show a pitch plot of shots conceded by al ahly fc in the last 5 matches": {
+      "season": "2023/2024",
+      "opponent": "no"
+    }
+  }
+}

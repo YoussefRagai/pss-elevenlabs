@@ -1,0 +1,3189 @@
+{
+  "tables": {
+    "players": {
+      "description": "Player master table. One row per player.",
+      "columns": {
+        "id": "Player ID",
+        "name": "Full player name",
+        "nickname": "Short name or nickname",
+        "dob": "Date of birth"
+      }
+    },
+    "teams": {
+      "description": "Team master table. One row per team.",
+      "columns": {
+        "id": "Team ID",
+        "name": "Team name",
+        "logo_url": "Logo URL"
+      }
+    },
+    "matches": {
+      "description": "Match master table. One row per match.",
+      "columns": {
+        "id": "Match ID",
+        "tournament_name": "Tournament name",
+        "season_name": "Season name",
+        "date_time": "Match kickoff datetime",
+        "home_team_id": "Home team ID",
+        "away_team_id": "Away team ID",
+        "home_score": "Home final score",
+        "away_score": "Away final score",
+        "status_text": "Match status text"
+      }
+    },
+    "match_events": {
+      "description": "Raw event log. One row per match event.",
+      "columns": {
+        "id": "Event row ID",
+        "match_id": "Match ID",
+        "team_id": "Team ID",
+        "player_id": "Player ID",
+        "event_id": "Event type ID",
+        "result_id": "Event result ID",
+        "extra_id": "Event extra ID",
+        "category_id": "Event category ID",
+        "minute": "Event minute",
+        "second": "Event second",
+        "x": "Event X location",
+        "y": "Event Y location"
+      }
+    },
+    "event_types": {
+      "description": "Event type lookup table.",
+      "columns": {
+        "id": "Event type ID",
+        "name": "Event type name (Shot, Pass, Foul, etc)",
+        "category_id": "Event category ID"
+      }
+    },
+    "event_results": {
+      "description": "Event result lookup table.",
+      "columns": {
+        "id": "Event result ID",
+        "name": "Event result name (Goal, OffTarget, Success, Fail, etc)"
+      }
+    },
+    "event_categories": {
+      "description": "Event category lookup table.",
+      "columns": {
+        "id": "Category ID",
+        "name": "Category name"
+      }
+    },
+    "event_extras": {
+      "description": "Extra event metadata lookup.",
+      "columns": {
+        "id": "Extra ID",
+        "name": "Extra name (e.g., Assist, Penalty)"
+      }
+    },
+    "viz_match_events": {
+      "description": "Enriched match events with joined names.",
+      "columns": {
+        "player_name": "Player name",
+        "team_name": "Team name",
+        "event_name": "Event type name",
+        "result_name": "Event result name",
+        "extra_name": "Extra name",
+        "match_id": "Match ID",
+        "player_id": "Player ID",
+        "team_id": "Team ID",
+        "minute": "Event minute",
+        "second": "Event second",
+        "x": "Event X",
+        "y": "Event Y"
+      }
+    },
+    "viz_match_events_with_match": {
+      "description": "Enriched match events with match + team context.",
+      "columns": {
+        "player_name": "Player name",
+        "team_name": "Team name",
+        "event_name": "Event type name",
+        "result_name": "Event result name",
+        "extra_name": "Extra name",
+        "match_id": "Match ID",
+        "tournament_name": "Tournament name",
+        "season_name": "Season name",
+        "home_team_name": "Home team name",
+        "away_team_name": "Away team name",
+        "home_score": "Home score",
+        "away_score": "Away score",
+        "minute": "Event minute"
+      }
+    }
+  },
+  "relationships": [
+    "players.id -> match_events.player_id",
+    "players.id -> viz_match_events.player_id",
+    "teams.id -> match_events.team_id",
+    "teams.id -> matches.home_team_id",
+    "teams.id -> matches.away_team_id",
+    "matches.id -> match_events.match_id",
+    "event_types.id -> match_events.event_id",
+    "event_results.id -> match_events.result_id",
+    "event_extras.id -> match_events.extra_id",
+    "event_categories.id -> match_events.category_id",
+    "viz_match_events is match_events joined with players/teams/event types/results/extras",
+    "viz_match_events_with_match is viz_match_events joined with matches"
+  ],
+  "domain_rules": [
+    "Goals are events where result_name = 'Goal'.",
+    "Shots are events where event_name in ('Shoot','Shoot Location','Penalty').",
+    "Successful passes are events where event_name = 'Pass' and result_name = 'Success'.",
+    "Assists are often represented in extra_name (look for extra_name = 'Assist' or similar).",
+    "Cards are typically event_name = 'Card' or category_name = 'Card' with result_name indicating Yellow/Red.",
+    "Minutes played can be inferred from events (first and last event times) or from match lineups if available.",
+    "Use players.name or players.nickname to find player_id, then count goal events by player_id.",
+    "Prefer viz_match_events for name-based queries; use match_events for ID-based queries.",
+    "Shots conceded by a team = shot events where event_name in ('Shoot','Shoot Location','Penalty') and team_name != target, and the match has home_team_name or away_team_name matching the target team.",
+    "Last N matches = order by date_time DESC (matches.date_time or viz_match_events_with_match.date_time) and LIMIT N, then filter events by those match_ids.",
+    "Example (shots conceded, last N matches): with recent as (select m.id from matches m join teams th on m.home_team_id=th.id join teams ta on m.away_team_id=ta.id where th.name ilike '%TEAM%' or ta.name ilike '%TEAM%' order by m.date_time desc limit N) select e.x,e.y,e.team_name from viz_match_events_with_match e where e.match_id in (select id from recent) and e.event_name in ('Shoot','Shoot Location','Penalty') and e.team_name not ilike '%TEAM%';"
+  ],
+  "schema_guards": [
+    "Do not assume home_team_name/away_team_name exist in matches; use teams table joined by home_team_id/away_team_id.",
+    "Do not assume end_x/end_y exist for passes; only x/y are guaranteed in viz_match_events_with_match.",
+    "Use teams.name and players.name for display; IDs live in matches/match_events.",
+    "Use viz_match_events_with_match for season_name/tournament_name context.",
+    "If a column is uncertain, call get_schema for that table before querying."
+  ],
+  "schema_snapshot": {
+    "tables": [
+      {
+        "name": "tournaments",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "gender",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "organizer_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "age_group_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "viz_match_events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "category_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "event_categories",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "stadiums",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "match_events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "nationalities",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "age_groups",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "ingestion_progress",
+        "columns": [
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "last_processed_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "last_update_seen",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "run_id",
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "error_message",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "event_extras",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "match_status",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "ingestion_runs",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "started_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "finished_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "season_ids",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "matches_total",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "matches_completed",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "matches_skipped",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "matches_failed",
+            "type": "integer",
+            "format": "integer"
+          }
+        ]
+      },
+      {
+        "name": "viz_event_segments",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "start_time",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_time",
+            "type": "number",
+            "format": "numeric"
+          }
+        ]
+      },
+      {
+        "name": "matches",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "tournament_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "round",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "date_time",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "last_update",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "stadium_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "home_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "away_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "referee_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "assistant1_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "assistant2_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "home_score",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "away_score",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "status_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "status_text",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "positions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "players",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "nickname",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "dob",
+            "type": "string",
+            "format": "date"
+          }
+        ]
+      },
+      {
+        "name": "event_results",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "viz_match_events_with_match",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "category_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "date_time",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "tournament_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "home_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "home_team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "away_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "away_team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "home_score",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "away_score",
+            "type": "integer",
+            "format": "integer"
+          }
+        ]
+      },
+      {
+        "name": "teams",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "logo_url",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "assistant_referees",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "dob",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "gender",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "nationality_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "event_types",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "referees",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "dob",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "nationality_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "organizers",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "match_lineups",
+        "columns": [
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "format": "public.lineup_role"
+          },
+          {
+            "name": "shirt_number",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "primary_position_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "primary_position_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "secondary_position_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "secondary_position_name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "seasons",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "gender",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "nature",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "start_date",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "end_date",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "tournament_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      }
+    ]
+  },
+  "visualization_rules": [
+    {
+      "analysis": "Pitch plot (arrows + scatter)",
+      "chart_type": "pitch_plot",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "use event_name and result_name as needed"
+      ],
+      "fields": [
+        "x",
+        "y",
+        "end_x",
+        "end_y"
+      ],
+      "notes": "Use arrows when end coordinates exist; otherwise scatter only. Set orientation and half as needed."
+    },
+    {
+      "analysis": "Shot map (by player/team/match)",
+      "chart_type": "shot_map",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "event_name in ('Shoot','Shoot Location','Penalty')",
+        "optional: result_name = 'Goal' for goals only"
+      ],
+      "fields": [
+        "x",
+        "y"
+      ],
+      "notes": "Use player_name or team_name filters; include match_id or season_name for scope. For conceded shots, filter to opponent team_name in matches where the target is home/away."
+    },
+    {
+      "analysis": "Pass map (successful passes)",
+      "chart_type": "pass_map",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "event_name = 'Pass'",
+        "result_name = 'Success'"
+      ],
+      "fields": [
+        "x",
+        "y"
+      ],
+      "notes": "If end coordinates exist in data, include end_x/end_y; otherwise use scatter."
+    },
+    {
+      "analysis": "Heatmap (touches/events)",
+      "chart_type": "heatmap",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "optional: event_name in ('Pass','Shot','Duel','BallReceived')"
+      ],
+      "fields": [
+        "x",
+        "y"
+      ],
+      "notes": "Use for general activity, touches, or event density."
+    },
+    {
+      "analysis": "Goal locations",
+      "chart_type": "shot_map",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "result_name = 'Goal'"
+      ],
+      "fields": [
+        "x",
+        "y"
+      ],
+      "notes": "Goal locations are a subset of shots where result_name = 'Goal'."
+    },
+    {
+      "analysis": "Card locations (discipline map)",
+      "chart_type": "heatmap",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "event_name = 'Card' OR category_name = 'Card'",
+        "optional: result_name in ('Yellow','Red')"
+      ],
+      "fields": [
+        "x",
+        "y"
+      ],
+      "notes": "If category_name is unavailable, filter on event_name only."
+    },
+    {
+      "analysis": "Assist locations",
+      "chart_type": "pass_map",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "extra_name = 'Assist'"
+      ],
+      "fields": [
+        "x",
+        "y"
+      ],
+      "notes": "Use extra_name to identify assists; may require validation on data."
+    },
+    {
+      "analysis": "Pass network",
+      "chart_type": "pass_network",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "event_name = 'Pass'",
+        "result_name = 'Success'"
+      ],
+      "fields": [
+        "from_x",
+        "from_y",
+        "to_x",
+        "to_y",
+        "count"
+      ],
+      "notes": "Requires aggregated pass links with counts; compute average locations and link weights in SQL."
+    },
+    {
+      "analysis": "SQL templates for visuals",
+      "chart_type": "template",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "shots_by_team: team_a/team_b",
+        "passes_success_by_team: team_a/team_b",
+        "heatmap_events_by_team: team_a/team_b",
+        "shot_map_by_player: player",
+        "pass_map_by_player: player",
+        "pass_network_by_team: team",
+        "heatmap_by_player: player",
+        "shots_conceded_by_team: team",
+        "shots_conceded_last_n_matches: team,last_n"
+      ],
+      "fields": [
+        "template",
+        "template_vars"
+      ],
+      "notes": "For visuals, call render_mplsoccer with a template when available, otherwise provide a SQL query."
+    },
+    {
+      "analysis": "Radar chart (player/team profile)",
+      "chart_type": "radar",
+      "source_table": "derived metrics",
+      "filters": [
+        "normalize metrics to comparable scales"
+      ],
+      "fields": [
+        "metrics[]",
+        "values[]",
+        "values_compare[]"
+      ],
+      "notes": "Metrics and values are computed in SQL; send arrays to render_mplsoccer."
+    },
+    {
+      "analysis": "Pizza chart (player/team profile)",
+      "chart_type": "pizza",
+      "source_table": "derived metrics",
+      "filters": [
+        "normalize metrics to comparable scales"
+      ],
+      "fields": [
+        "metrics[]",
+        "values[]"
+      ],
+      "notes": "Metrics and values are computed in SQL; send arrays to render_mplsoccer."
+    },
+    {
+      "analysis": "Bumpy chart (rank over time)",
+      "chart_type": "bumpy",
+      "source_table": "derived metrics",
+      "filters": [
+        "compute ranks per time bucket in SQL"
+      ],
+      "fields": [
+        "metrics[]",
+        "series[]"
+      ],
+      "notes": "Use metrics for x-axis (time buckets) and series for ranked values."
+    },
+    {
+      "analysis": "Stacked pitch charts (multi-team overlays)",
+      "chart_type": "shot_map / pass_map / heatmap / pitch_plot / pass_network",
+      "source_table": "viz_match_events_with_match",
+      "filters": [
+        "use separate SQL queries per team/player",
+        "provide each dataset as a series with label + color"
+      ],
+      "fields": [
+        "series[] with data[] containing x/y (and end_x/end_y if needed)"
+      ],
+      "notes": "Stacking is done by passing multiple series to render_mplsoccer; each series is drawn with its own color."
+    }
+  ],
+  "data_shapes": {
+    "pitch_xy": {
+      "required": [
+        "x",
+        "y"
+      ],
+      "optional": [
+        "end_x",
+        "end_y",
+        "team_name",
+        "player_name",
+        "series_label"
+      ]
+    },
+    "pass_network": {
+      "required": [
+        "from_x",
+        "from_y",
+        "to_x",
+        "to_y",
+        "count"
+      ],
+      "optional": [
+        "team_name",
+        "series_label"
+      ]
+    },
+    "radar_pizza": {
+      "required": [
+        "metrics[]",
+        "values[]"
+      ],
+      "optional": [
+        "values_compare[]"
+      ]
+    },
+    "bumpy": {
+      "required": [
+        "metrics[]",
+        "series[]"
+      ],
+      "optional": []
+    }
+  },
+  "learned_templates": [
+    {
+      "name": "learned_shot_map_show_me_on_a_pitch_all_the_shots_that_al_ahly_took_in_their__1714100633",
+      "chart_type": "shot_map",
+      "query": "with recent as (\n  select m.id\n  from matches m\n  join teams th on m.home_team_id = th.id\n  join teams ta on m.away_team_id = ta.id\n  where th.name ilike '%Al Ahly%' or ta.name ilike '%Al Ahly%'\n  order by m.date_time desc\n  limit 5\n)\nselect e.x, e.y\nfrom viz_match_events_with_match e\nwhere e.match_id in (select id from recent)\n  and e.event_name in ('Shoot','Shoot Location','Penalty')\n  and e.team_name ilike '%Al Ahly%'\n  and e.x between 0 and 100 and e.y between 0 and 100",
+      "source_prompt": "Show me on a pitch all the shots that Al Ahly took in their last 5 matches"
+    },
+    {
+      "name": "learned_shot_map_show_me_the_last_100_shots_taken_by_al_ahly_1614322481",
+      "chart_type": "shot_map",
+      "query_template": "select e.x, e.y from viz_match_events_with_match e where e.team_name ilike '%Al Ahly%' and e.event_name in ('Shoot','Shoot Location','Penalty') order by e.date_time desc limit 100",
+      "params": [
+        "team"
+      ],
+      "intent_keywords": [
+        "shot",
+        "shots"
+      ],
+      "source_prompt": "Show me the last 100 shots taken by Al Ahly"
+    },
+    {
+      "name": "learned_pass_map_show_me_all_the_successful_passes_that_al_ahly_took_in_a_ran_1262892506",
+      "chart_type": "pass_map",
+      "query_template": "SELECT e.x, e.y FROM viz_match_events_with_match e WHERE e.team_name ILIKE '%Al Ahly%' AND e.event_name = 'Pass' AND e.result_name = 'Success' AND e.match_id = (SELECT m.id FROM matches m JOIN teams th ON m.home_team_id = th.id JOIN teams ta ON m.away_team_id = ta.id WHERE th.name ILIKE '%Al Ahly%' OR ta.name ILIKE '%Al Ahly%' ORDER BY random() LIMIT 1) LIMIT 5000",
+      "params": [
+        "team"
+      ],
+      "intent_keywords": [
+        "pass",
+        "passes"
+      ],
+      "source_prompt": "Show me all the successful passes that Al Ahly took in a random match"
+    },
+    {
+      "name": "learned_pass_map_show_me_all_the_successful_passes_that_al_ahly_took_in_a_ran_546014663",
+      "chart_type": "pass_map",
+      "query_template": "SELECT e.x, e.y FROM viz_match_events_with_match e WHERE e.team_name ILIKE '%Al Ahly%' AND e.event_name = 'Pass' AND e.result_name = 'Success' AND e.match_id = (SELECT m.id FROM matches m JOIN teams th ON m.home_team_id = th.id JOIN teams ta ON m.away_team_id = ta.id WHERE th.name ILIKE '%Al Ahly%' OR ta.name ILIKE '%Al Ahly%' ORDER BY random() LIMIT 1) LIMIT 5000",
+      "params": [
+        "team"
+      ],
+      "intent_keywords": [
+        "pass",
+        "passes"
+      ],
+      "source_prompt": "Show me all the successful passes that Al Ahly took in a random match (the passes should be as arrows)"
+    }
+  ],
+  "schema_cache": {
+    "updated_at": "2026-02-01T22:51:55.666Z",
+    "tables": [
+      {
+        "name": "tournaments",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "gender",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "organizer_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "age_group_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "v_events_full",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_nickname",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "shirt_number",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "category_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "end_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "end_player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "delta_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "delta_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "possession_chain_id",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "sub_chain_id",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "possession_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "possession_team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "sequence_in_chain",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "is_chain_start",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "is_chain_end",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "was_carry",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "carry_end_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_end_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "duration",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xg",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xg_chain",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "goal_mouth_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "goal_mouth_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xgot",
+            "type": "number",
+            "format": "numeric"
+          }
+        ]
+      },
+      {
+        "name": "spatial_event_allowlist",
+        "columns": [
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "viz_match_events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "category_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "event_categories",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "stadiums",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "match_events",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "shirt_number",
+            "type": "integer",
+            "format": "smallint"
+          }
+        ]
+      },
+      {
+        "name": "nationalities",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "age_groups",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "ingestion_progress",
+        "columns": [
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "last_processed_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "last_update_seen",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "run_id",
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "error_message",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "v_passes",
+        "columns": [
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "shirt_number",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "pass_type",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "start_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "start_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "delta_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "delta_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "is_successful",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_info",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "is_key_pass",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "is_assist",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "possession_chain_id",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "possession_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "sequence_in_chain",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "pass_distance",
+            "type": "number",
+            "format": "numeric"
+          }
+        ]
+      },
+      {
+        "name": "event_extras",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "match_status",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "ingestion_runs",
+        "columns": [
+          {
+            "name": "id",
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "started_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "finished_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "season_ids",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "matches_total",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "matches_completed",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "matches_skipped",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "matches_failed",
+            "type": "integer",
+            "format": "integer"
+          }
+        ]
+      },
+      {
+        "name": "viz_event_segments",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "start_time",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_time",
+            "type": "number",
+            "format": "numeric"
+          }
+        ]
+      },
+      {
+        "name": "matches",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "tournament_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "round",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "date_time",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "last_update",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "stadium_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "home_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "away_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "referee_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "assistant1_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "assistant2_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "home_score",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "away_score",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "status_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "status_text",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "positions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "players",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "nickname",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "dob",
+            "type": "string",
+            "format": "date"
+          }
+        ]
+      },
+      {
+        "name": "event_results",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "viz_match_events_with_match",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "msec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "category_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "result_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "result_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "extra_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "extra_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "guid_ref",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "date_time",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "tournament_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "home_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "home_team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "away_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "away_team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "home_score",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "away_score",
+            "type": "integer",
+            "format": "integer"
+          }
+        ]
+      },
+      {
+        "name": "teams",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "logo_url",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "event_analytics",
+        "columns": [
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "end_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "delta_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "delta_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "possession_chain_id",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "sub_chain_id",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "possession_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "sequence_in_chain",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "is_chain_start",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "is_chain_end",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "was_carry",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "carry_end_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_end_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "duration",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "computed_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "end_player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "carry_start_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_start_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_delta_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_delta_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_distance",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_duration",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "carry_after_dribble",
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "v_shots",
+        "columns": [
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "season_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "match_date",
+            "type": "string",
+            "format": "timestamp with time zone"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "second",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "time_in_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "event_type_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "event_type",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "shot_category",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "result",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "is_goal",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "is_on_target",
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "shot_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "shot_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "goal_mouth_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "goal_mouth_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xg",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xgot",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xg_chain",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "distance_to_goal",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "angle_to_goal",
+            "type": "number",
+            "format": "numeric"
+          }
+        ]
+      },
+      {
+        "name": "assistant_referees",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "dob",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "gender",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "nationality_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "v_possession_chains",
+        "columns": [
+          {
+            "name": "possession_chain_id",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "possession_team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "possession_team_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "half",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "start_minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "end_minute",
+            "type": "integer",
+            "format": "smallint"
+          },
+          {
+            "name": "start_time_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "end_time_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "duration_sec",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "event_count",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "players_involved",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "pass_count",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "successful_passes",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "shot_count",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "goals",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "xg_chain",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xg_total",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "avg_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "avg_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "min_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "max_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "chain_outcome",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "event_types",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "category_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "referees",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "dob",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "nationality_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      },
+      {
+        "name": "event_xg",
+        "columns": [
+          {
+            "name": "event_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "xg",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xg_chain",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "goal_mouth_x",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "goal_mouth_y",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "xgot",
+            "type": "number",
+            "format": "numeric"
+          },
+          {
+            "name": "computed_at",
+            "type": "string",
+            "format": "timestamp with time zone"
+          }
+        ]
+      },
+      {
+        "name": "organizers",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "match_lineups",
+        "columns": [
+          {
+            "name": "match_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "team_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "player_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "format": "public.lineup_role"
+          },
+          {
+            "name": "shirt_number",
+            "type": "integer",
+            "format": "integer"
+          },
+          {
+            "name": "primary_position_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "primary_position_name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "secondary_position_id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "secondary_position_name",
+            "type": "string",
+            "format": "text"
+          }
+        ]
+      },
+      {
+        "name": "seasons",
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "format": "bigint"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "gender",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "nature",
+            "type": "string",
+            "format": "text"
+          },
+          {
+            "name": "start_date",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "end_date",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "tournament_id",
+            "type": "integer",
+            "format": "bigint"
+          }
+        ]
+      }
+    ]
+  }
+}
