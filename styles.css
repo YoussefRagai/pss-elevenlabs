@@ -73,7 +73,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(360px, 0.9fr);
   gap: 24px;
   align-items: start;
 }
@@ -96,21 +96,11 @@ body {
 }
 
 .chat-popup {
-  position: fixed;
-  right: 32px;
-  top: 140px;
-  width: min(480px, 92vw);
-  max-height: calc(100vh - 180px);
-  display: none;
-  z-index: 10;
-}
-
-body.voice-active .chat-popup {
+  position: static;
+  width: 100%;
+  max-height: none;
   display: grid;
-}
-
-body.voice-active .meta-panel {
-  display: none;
+  z-index: 1;
 }
 
 .voice-panel {
@@ -379,9 +369,6 @@ body.voice-active .meta-panel {
   }
 
   .chat-popup {
-    right: 16px;
-    left: 16px;
-    top: 120px;
-    width: auto;
+    width: 100%;
   }
 }

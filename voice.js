@@ -54,7 +54,6 @@ async function startConversation() {
       active = false;
       conversation = null;
       orb.classList.remove("active");
-      document.body.classList.remove("voice-active");
       toggleBtn.textContent = "Start Kora";
       setStatus("Kora idle", "idle");
     },
@@ -62,7 +61,6 @@ async function startConversation() {
       active = false;
       conversation = null;
       orb.classList.remove("active");
-      document.body.classList.remove("voice-active");
       toggleBtn.textContent = "Start Kora";
       setStatus(error?.message || "Kora error", "error");
     },
@@ -70,7 +68,6 @@ async function startConversation() {
   conversation.setMicMuted(false);
   active = true;
   orb.classList.add("active");
-  document.body.classList.add("voice-active");
   toggleBtn.textContent = "Hang Up";
   setStatus("Listening…", "active");
 }
@@ -90,7 +87,6 @@ async function stopConversation() {
   }
   active = false;
   orb.classList.remove("active");
-  document.body.classList.remove("voice-active");
   toggleBtn.textContent = "Start Kora";
   setStatus("Kora idle", "idle");
 }
