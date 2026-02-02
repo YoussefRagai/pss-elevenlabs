@@ -2272,6 +2272,36 @@ async function handleVoiceTool(req, res) {
   });
 }
 
+async function handleElevenLabsToken(req, res) {
+  const env = parseEnvFile();
+  const apiKey = env.ELEVENLABS_API_KEY;
+  const agentId = env.ELEVENLABS_AGENT_ID;
+  if (!apiKey || !agentId) {
+    sendJson(res, 500, { error: "Missing ELEVENLABS_API_KEY or ELEVENLABS_AGENT_ID." });
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${agentId}`,
+      {
+        headers: {
+          "xi-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      sendJson(res, response.status, { error: payload?.detail || payload?.error || "Token failed." });
+      return;
+    }
+    sendJson(res, 200, { token: payload?.token });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "Token failed." });
+  }
+}
+
 async function proxyChat(req, res) {
   const env = parseEnvFile();
   const apiKey = env.OPENROUTER_API_KEY;
@@ -3130,6 +3160,11 @@ const server = http.createServer((req, res) => {
     handleHealth(req, res).catch((error) =>
       sendJson(res, 500, { status: "error", error: error.message || String(error) })
     );
+    return;
+  }
+
+  if (req.url.startsWith("/api/elevenlabs/conversation-token")) {
+    handleElevenLabsToken(req, res);
     return;
   }
 
