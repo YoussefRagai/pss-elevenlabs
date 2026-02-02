@@ -2492,11 +2492,11 @@ async function proxyChat(req, res) {
           ? `and m.season_name ilike '${seasonLikePattern(blockMap.season)}' `
           : "";
         const blockQuery =
-          "select e.x, e.y from v_events_full e " +
-          "join matches m on e.match_id = m.id " +
-          `where (e.team_name ilike '%${safeTeam}%' or e.team_name ilike '%${fuzzyTeam}%') ` +
-          seasonClause +
-          "and (e.event_name ilike '%block%' or e.category_name ilike '%block%')";
+          "select x, y from viz_match_events_with_match " +
+          `where (team_name ilike '%${safeTeam}%' or team_name ilike '%${fuzzyTeam}%') ` +
+          (blockMap.season ? `and season_name ilike '${seasonLikePattern(blockMap.season)}' ` : "") +
+          "and (event_name ilike '%block%' or category_name ilike '%block%') " +
+          "limit 5000";
         const image = await renderMplSoccerAndLearn(
           {
             chart_type: "shot_map",
