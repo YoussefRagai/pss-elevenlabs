@@ -26,6 +26,8 @@ function request(method, path, body) {
     "-X",
     method,
     url,
+    "--max-time",
+    "20",
     "-H",
     `xi-api-key: ${apiKey}`,
     "-H",
@@ -36,7 +38,12 @@ function request(method, path, body) {
   if (body) {
     args.push("-d", JSON.stringify(body));
   }
-  const raw = execFileSync("curl", args, { encoding: "utf8" });
+  let raw = "";
+  try {
+    raw = execFileSync("curl", args, { encoding: "utf8" });
+  } catch (error) {
+    throw new Error("curl request failed");
+  }
   const parts = raw.split("\n__STATUS__");
   const bodyText = parts[0] || "{}";
   const statusCode = Number(parts[1] || "0");
