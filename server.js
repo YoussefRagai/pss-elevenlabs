@@ -512,34 +512,35 @@ function buildTemplateQuery(template, vars) {
     return filled;
   }
   const v = vars || {};
+  const teamA = String(v.team_a || "").replace(/'/g, "''");
+  const teamB = String(v.team_b || "").replace(/'/g, "''");
+  const teamFilter =
+    teamA && teamB
+      ? `(team_name ilike '%${teamA}%' or team_name ilike '%${teamB}%')`
+      : teamA
+      ? `team_name ilike '%${teamA}%'`
+      : teamB
+      ? `team_name ilike '%${teamB}%'`
+      : "team_name is not null";
   if (template === "shots_by_team") {
     return (
       "select team_name, x, y from viz_match_events_with_match " +
-      "where event_name in ('Shoot','Shoot Location','Penalty') and team_name in ('" +
-      String(v.team_a || "").replace(/'/g, "''") +
-      "','" +
-      String(v.team_b || "").replace(/'/g, "''") +
-      "')"
+      "where event_name in ('Shoot','Shoot Location','Penalty') and " +
+      teamFilter
     );
   }
   if (template === "passes_success_by_team") {
     return (
       "select team_name, x, y from viz_match_events_with_match " +
-      "where event_name = 'Pass' and result_name = 'Success' and team_name in ('" +
-      String(v.team_a || "").replace(/'/g, "''") +
-      "','" +
-      String(v.team_b || "").replace(/'/g, "''") +
-      "')"
+      "where event_name = 'Pass' and result_name = 'Success' and " +
+      teamFilter
     );
   }
   if (template === "heatmap_events_by_team") {
     return (
       "select team_name, x, y from viz_match_events_with_match " +
-      "where team_name in ('" +
-      String(v.team_a || "").replace(/'/g, "''") +
-      "','" +
-      String(v.team_b || "").replace(/'/g, "''") +
-      "')"
+      "where " +
+      teamFilter
     );
   }
   if (template === "shot_map_by_player") {
@@ -2568,7 +2569,14 @@ async function proxyChat(req, res) {
       }
 
       const preShotQuestion = resolveAlias(lastQuestionRaw, memory);
-      if (/shot map/i.test(preShotQuestion) && !/comparing|between|vs\\b|against\\b/i.test(preShotQuestion) && !/conceded|concede/i.test(preShotQuestion) && !/last\\s+\\d+\\s+matches?/i.test(preShotQuestion)) {
+      if (
+        /shot map/i.test(preShotQuestion) &&
+        !/comparing|between|vs\\b|against\\b/i.test(preShotQuestion) &&
+        !/conceded|concede/i.test(preShotQuestion) &&
+        !/last\\s+\\d+\\s+matches?/i.test(preShotQuestion) &&
+        !/random match/i.test(preShotQuestion) &&
+        !/\d{4}\/\d{4}/.test(preShotQuestion)
+      ) {
         const parsedShot = parseShotMapTeamPrompt(preShotQuestion);
         const team =
           findKnownTeam(parsedShot?.team || preShotQuestion, memory) ||
