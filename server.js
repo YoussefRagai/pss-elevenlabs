@@ -847,6 +847,24 @@ function normalizePrompt(text) {
   return (text || "").trim().replace(/\s+/g, " ").replace(/[?.!]+$/, "");
 }
 
+function stripGreetingPreamble(text) {
+  if (!text) return "";
+  const parts = String(text).split(/[?!.]/).map((p) => p.trim()).filter(Boolean);
+  while (parts.length) {
+    const head = parts[0].toLowerCase();
+    if (
+      /^(hi|hello|hey|how are you|how's it going|good morning|good afternoon|good evening|greetings|hi cora|hi kora)$/i.test(
+        head
+      )
+    ) {
+      parts.shift();
+      continue;
+    }
+    break;
+  }
+  return parts.join(". ").trim() || String(text).trim();
+}
+
 function extractEntityCandidate(text) {
   const normalized = normalizePrompt(text);
   if (/color|different color|visual|chart|plot|heatmap|shot map|pass map/i.test(normalized)) {
@@ -1196,6 +1214,20 @@ function parseShotMapTeamPrompt(text) {
   return { team, orientation: parseOrientation(text), half: parseHalfPitch(text) };
 }
 
+function parseShotsComparePrompt(text) {
+  const normalized = normalizePrompt(text);
+  if (!/shots?/i.test(normalized)) return null;
+  const match =
+    normalized.match(/(?:between|comparing) (.+?) and (.+?)$/i) ||
+    normalized.match(/(.+?)\\s+(?:vs\\.?|versus|against)\\s+(.+)$/i);
+  if (!match) return null;
+  const teamA = cleanEntityName(match[1]);
+  const teamB = cleanEntityName(match[2]);
+  if (!teamA || !teamB) return null;
+  const matchSpecific = /match/i.test(normalized);
+  return { team_a: teamA, team_b: teamB, match_specific: matchSpecific };
+}
+
 function parsePitchPlotTeamPrompt(text) {
   const normalized = normalizePrompt(text);
   if (!/pitch plot/i.test(normalized)) return null;
@@ -1278,6 +1310,8 @@ async function callOpenRouter(payload, apiKey, retries = 2, fallbackModel = "moo
 }
 
 function buildAnalysisPrompt(userPrompt, dataPreview, rowCount) {
+  const fields =
+    dataPreview && dataPreview.length ? Object.keys(dataPreview[0]) : [];
   let dataText = JSON.stringify(dataPreview || []);
   let truncated = false;
   if (dataText.length > 6000) {
@@ -1290,6 +1324,7 @@ function buildAnalysisPrompt(userPrompt, dataPreview, rowCount) {
       : `Rows provided: ${dataPreview?.length || 0}.`;
   return [
     `User request: ${userPrompt}`,
+    `Available fields: ${fields.join(", ") || "none"}`,
     sampleNote,
     truncated ? "Data preview is truncated." : "Data preview below.",
     `Data: ${dataText}`,
@@ -1312,14 +1347,38 @@ function sanitizeAnalysisText(text) {
   return cleaned || null;
 }
 
+function filterAnalysisByFields(text, fields) {
+  if (!text) return null;
+  const fieldSet = new Set((fields || []).map((f) => String(f).toLowerCase()));
+  const allowMinute =
+    fieldSet.has("minute") ||
+    fieldSet.has("time") ||
+    fieldSet.has("date_time");
+  let cleaned = String(text).trim();
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const filtered = allowMinute
+    ? sentences
+    : sentences.filter(
+        (s) =>
+          !/\bminute\b/i.test(s) &&
+          !/\b\d{1,3}['′]/.test(s) &&
+          !/\bhalf\b/i.test(s)
+      );
+  cleaned = filtered.join(" ").trim();
+  return cleaned || null;
+}
+
 function wantsDeepAnalysis(prompt) {
   if (!prompt) return false;
   return /(deep|detailed|detail|break down|full analysis|in-depth|advanced)/i.test(prompt);
 }
 
-function enforceAnalysisStyle(text, prompt) {
+function enforceAnalysisStyle(text, prompt, fields) {
   if (!text) return null;
-  let cleaned = String(text).trim();
+  let cleaned = filterAnalysisByFields(text, fields) || String(text).trim();
   if (!/chart above|image above|figure above|visual above/i.test(cleaned)) {
     cleaned = `As shown in the chart above, ${cleaned}`;
   }
@@ -1340,6 +1399,9 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
     image.data_preview,
     image.row_count || image.data_preview.length
   );
+  const fields =
+    image.data_fields ||
+    (image.data_preview?.length ? Object.keys(image.data_preview[0]) : []);
   const models = [
     "moonshotai/kimi-k2:free",
     "openai/gpt-oss-120b:free",
@@ -1368,7 +1430,8 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
       );
       const text = enforceAnalysisStyle(
         sanitizeAnalysisText(response?.choices?.[0]?.message?.content),
-        userPrompt
+        userPrompt,
+        fields
       );
       if (text) return text;
     } catch (error) {
@@ -1821,6 +1884,7 @@ async function renderMplSoccer(params, env) {
     mime: payload.mime || "image/png",
     row_count: data.length,
     data_preview: dataPreview,
+    data_fields: dataPreview.length ? Object.keys(dataPreview[0]) : [],
   };
 }
 
@@ -2506,14 +2570,15 @@ async function proxyChat(req, res) {
           "SQL-first mode enforced: for any database question, use run_sql_rpc to answer. For visualization requests, use render_mplsoccer with either a SQL template (template + template_vars) or a direct SQL query (query). Prefer templates when available. IMPORTANT: for pitch charts (shot_map/pass_map/heatmap/pitch_plot), do not call render_mplsoccer without a query or template. For pass_map, always include end_x and end_y so arrows can be drawn; if missing, consult schema and add them. If comparing two teams/players, ensure the result includes a label column (team_name/player_name) and pass series_split_field so each entity is a separate series and color. Start by calling get_semantic_hints to learn domain rules and table meanings, then use get_schema to confirm table/column names, then run_sql_rpc or render_mplsoccer for the final answer. If you have any doubt about a column or table, call get_schema before querying. Only use non-SQL tools if the question is NOT about the database. Use ILIKE for name matches. Prefer viz_match_events or viz_match_events_with_match for event-based stats (goals, shots, cards, assists). Repair rules: if you reference end_x/end_y and the query fails, drop those columns and proceed with x/y only. If a query may be large, add a LIMIT (e.g., 5000) to avoid timeouts. Use shot synonyms: treat shots as event_name in ('Shoot','Shoot Location','Penalty'). For shots conceded by a team, select shots by the opponent in matches where the team appears as home or away (team_name != target AND (home_team_name ILIKE target OR away_team_name ILIKE target)), or use templates shots_conceded_by_team / shots_conceded_last_n_matches. For 'last N matches', use matches.date_time or viz_match_events_with_match.date_time ordered DESC with LIMIT N, then filter events by those match_ids. If you generate a correct SQL query for a new visualization, call render_mplsoccer with the query; the system will store it as a learned template for future exact matches. Strip trailing semicolons from SQL.",
       };
       const lastQuestionRaw = getLastUserMessage(payload.messages || []);
-      const pendingResult = handlePendingClarification(lastQuestionRaw);
+      const cleanedQuestion = stripGreetingPreamble(lastQuestionRaw);
+      const pendingResult = handlePendingClarification(cleanedQuestion);
       if (pendingResult?.question) {
         sendAssistantReply(res, pendingResult.question);
         return;
       }
       const resolvedQuestion = pendingResult?.resolved
         ? pendingResult.resolved
-        : resolveAlias(lastQuestionRaw, memory);
+        : resolveAlias(cleanedQuestion, memory);
       const lastQuestion = resolvedQuestion;
 
       const baseParams = extractParamsFromPrompt(lastQuestionRaw, memory);
@@ -2583,6 +2648,81 @@ async function proxyChat(req, res) {
         sendAssistantReply(
           res,
           `Shot map comparing last ${limit} shots for ${earlyLastShotsCompare.team_a} vs ${earlyLastShotsCompare.team_b}.`,
+          image
+        );
+        return;
+      }
+
+      const shotsCompare = parseShotsComparePrompt(lastQuestion);
+      if (shotsCompare) {
+        setLastTeams(memory, shotsCompare.team_a, shotsCompare.team_b);
+        if (shotsCompare.match_specific) {
+          const safeA = shotsCompare.team_a.replace(/'/g, "''");
+          const safeB = shotsCompare.team_b.replace(/'/g, "''");
+          const pickMatchQuery =
+            "select m.id from matches m " +
+            "join teams th on m.home_team_id = th.id " +
+            "join teams ta on m.away_team_id = ta.id " +
+            "where (th.name ilike '%" +
+            safeA +
+            "%' and ta.name ilike '%" +
+            safeB +
+            "%') or (th.name ilike '%" +
+            safeB +
+            "%' and ta.name ilike '%" +
+            safeA +
+            "%') " +
+            "order by m.date_time desc limit 1";
+          const pickResult = await runSqlRpc(pickMatchQuery, env);
+          const matchId = pickResult.data?.[0]?.id || null;
+          if (!matchId) {
+            sendAssistantReply(
+              res,
+              `I couldn't find a recent match between ${shotsCompare.team_a} and ${shotsCompare.team_b}.`
+            );
+            return;
+          }
+          const shotQuery =
+            "select team_name, x, y from viz_match_events_with_match " +
+            `where match_id = ${matchId} ` +
+            "and event_name in ('Shoot','Shoot Location','Penalty')";
+          const image = await renderMplSoccerAndLearn(
+            {
+              chart_type: "shot_map",
+              query: shotQuery,
+              series_split_field: "team_name",
+              title: `All shots - ${shotsCompare.team_a} vs ${shotsCompare.team_b}`,
+              subtitle: `Match ID ${matchId}`
+            },
+            env,
+            lastQuestionRaw,
+            memory
+          );
+          sendAssistantReply(
+            res,
+            `All shots for ${shotsCompare.team_a} vs ${shotsCompare.team_b} (match ${matchId}).`,
+            image
+          );
+          setLastMatchContext(memory, {
+            match_id: matchId,
+            teams: { team_a: shotsCompare.team_a, team_b: shotsCompare.team_b },
+          });
+          return;
+        }
+        const image = await renderMplSoccerAndLearn(
+          {
+            chart_type: "shot_map",
+            template: "shots_by_team",
+            template_vars: { team_a: shotsCompare.team_a, team_b: shotsCompare.team_b },
+            series_split_field: "team_name",
+          },
+          env,
+          lastQuestionRaw,
+          memory
+        );
+        sendAssistantReply(
+          res,
+          `Shot map comparing ${shotsCompare.team_a} vs ${shotsCompare.team_b}.`,
           image
         );
         return;
