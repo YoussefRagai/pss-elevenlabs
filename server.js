@@ -1253,26 +1253,39 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
     image.data_preview,
     image.row_count || image.data_preview.length
   );
-  const response = await callOpenRouter(
-    {
-      model: "moonshotai/kimi-k2:free",
-      temperature: 0.3,
-      max_tokens: 350,
-      stream: false,
-      messages: [
+  const models = [
+    "moonshotai/kimi-k2:free",
+    "openai/gpt-oss-120b:free",
+    "deepseek/deepseek-r1-0528:free",
+  ];
+  for (const model of models) {
+    try {
+      const response = await callOpenRouter(
         {
-          role: "system",
-          content:
-            "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Keep it under 6 sentences.",
+          model,
+          temperature: 0.3,
+          max_tokens: 350,
+          stream: false,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Keep it under 6 sentences.",
+            },
+            { role: "user", content: prompt },
+          ],
         },
-        { role: "user", content: prompt },
-      ],
-    },
-    apiKey,
-    1,
-    null
-  );
-  return response?.choices?.[0]?.message?.content?.trim() || null;
+        apiKey,
+        1,
+        null
+      );
+      const text = response?.choices?.[0]?.message?.content?.trim();
+      if (text) return text;
+    } catch (error) {
+      // Try next fallback model
+    }
+  }
+  return null;
 }
 
 async function fetchSchema(env) {
