@@ -2427,13 +2427,14 @@ async function proxyChat(req, res) {
       if (carryMap) {
         const safePlayer = carryMap.player.replace(/'/g, "''");
         const seasonClause = carryMap.season
-          ? `and season_name = '${carryMap.season.replace(/'/g, "''")}' `
+          ? `and m.season_name = '${carryMap.season.replace(/'/g, "''")}' `
           : "";
         const carryQuery =
-          "select x, y from viz_match_events_with_match " +
-          `where player_name ilike '%${safePlayer}%' ` +
+          "select e.x, e.y from v_events_full e " +
+          "join matches m on e.match_id = m.id " +
+          `where e.player_name ilike '%${safePlayer}%' ` +
           seasonClause +
-          "and event_name ilike '%carry%'";
+          "and e.event_name ilike '%carry%'";
         const image = await renderMplSoccerAndLearn(
           {
             chart_type: "shot_map",
