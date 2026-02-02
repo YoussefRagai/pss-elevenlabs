@@ -2,7 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
-const PORT = process.env.PORT || 5173;
+const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
 const SCHEMA_TTL_MS = 5 * 60 * 1000;
 const SEMANTIC_PATH = path.join(ROOT, "semantic.json");
@@ -16,10 +16,10 @@ const schemaCache = {
 
 function parseEnvFile() {
   const envPath = path.join(ROOT, ".env");
+  const env = { ...process.env };
   try {
     const text = fs.readFileSync(envPath, "utf8");
     const lines = text.split("\n");
-    const env = {};
     for (const raw of lines) {
       const line = raw.trim();
       if (!line || line.startsWith("#") || !line.includes("=")) continue;
@@ -29,7 +29,7 @@ function parseEnvFile() {
     }
     return env;
   } catch (error) {
-    return {};
+    return env;
   }
 }
 
