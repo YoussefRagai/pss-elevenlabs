@@ -1015,8 +1015,8 @@ function parseRandomShotMapPrompt(text) {
   const normalized = normalizePrompt(text);
   if (!/shot map/i.test(normalized)) return null;
   if (!/random match/i.test(normalized)) return null;
-  const teamMatch = normalized.match(/shot map(?:\\s+for|\\s+of)?\\s+(.+?)\\s+in\\s+(?:a\\s+)?random match/i);
-  const seasonMatch = normalized.match(/(?:season|from)\\s+(\\d{4}\\/\\d{4})/i);
+  const teamMatch = normalized.match(/shot map(?:\s+for|\s+of)?\s+(.+?)\s+in\s+(?:a\s+)?random match/i);
+  const seasonMatch = normalized.match(/(?:season|from)\s+(\d{4}\/\d{4})/i);
   if (!teamMatch) return null;
   return { team: teamMatch[1].trim(), season: seasonMatch?.[1]?.trim() || null };
 }
