@@ -1011,6 +1011,16 @@ function parseRandomMatchShotsPrompt(text) {
   return { team: match[1].trim() };
 }
 
+function parseRandomShotMapPrompt(text) {
+  const normalized = normalizePrompt(text);
+  if (!/shot map/i.test(normalized)) return null;
+  if (!/random match/i.test(normalized)) return null;
+  const teamMatch = normalized.match(/shot map(?:\\s+for|\\s+of)?\\s+(.+?)\\s+in\\s+(?:a\\s+)?random match/i);
+  const seasonMatch = normalized.match(/(?:season|from)\\s+(\\d{4}\\/\\d{4})/i);
+  if (!teamMatch) return null;
+  return { team: teamMatch[1].trim(), season: seasonMatch?.[1]?.trim() || null };
+}
+
 function parseGoalsConcededPrompt(text) {
   const normalized = normalizePrompt(text);
   const match = normalized.match(/how many goals did (.+?) concede in the (\d{4}\/\d{4}) season/i);
@@ -1077,6 +1087,7 @@ function parseShotMapTeamPrompt(text) {
   let team = match[1].trim();
   team = team.replace(/\\b(team)\\b/i, "").trim();
   team = team.replace(/\\b(shots?)\\b.*$/i, "").trim();
+  team = team.replace(/\\b(in|from)\\b.*\\b(season|random match)\\b.*$/i, "").trim();
   if (!team) return null;
   return { team, orientation: parseOrientation(text), half: parseHalfPitch(text) };
 }
@@ -2391,6 +2402,47 @@ async function proxyChat(req, res) {
         return;
       }
 
+      const randomShotMap = parseRandomShotMapPrompt(lastQuestion);
+      if (randomShotMap) {
+        const safeTeam = randomShotMap.team.replace(/'/g, "''");
+        const seasonClause = randomShotMap.season
+          ? `and season_name = '${randomShotMap.season.replace(/'/g, "''")}' `
+          : "";
+        const pickMatchQuery =
+          "select match_id from viz_match_events_with_match " +
+          `where team_name ilike '%${safeTeam}%' ` +
+          seasonClause +
+          "group by match_id order by random() limit 1";
+        const pickResult = await runSqlRpc(pickMatchQuery, env);
+        const matchId = pickResult.data?.[0]?.match_id;
+        if (!matchId) {
+          sendAssistantReply(res, `I couldn't find any matches for ${randomShotMap.team}.`);
+          return;
+        }
+        const shotQuery =
+          "select x, y from viz_match_events_with_match " +
+          `where match_id = ${matchId} ` +
+          `and team_name ilike '%${safeTeam}%' ` +
+          "and event_name in ('Shoot','Shoot Location','Penalty')";
+        const image = await renderMplSoccerAndLearn(
+          {
+            chart_type: "shot_map",
+            query: shotQuery,
+            title: `${randomShotMap.team} shots`,
+            subtitle: `Match ID ${matchId}`
+          },
+          env,
+          lastQuestionRaw,
+          memory
+        );
+        sendAssistantReply(
+          res,
+          `Here are all shots for ${randomShotMap.team} in match ${matchId}.`,
+          image
+        );
+        return;
+      }
+
       const randomPasses = parseRandomMatchPassesPrompt(lastQuestion);
       if (randomPasses) {
         const safeTeam = randomPasses.team.replace(/'/g, "''");
@@ -2825,6 +2877,10 @@ async function proxyChat(req, res) {
             }
             applyVisualOverrides(args, lastQuestionRaw);
             toolResult = await renderMplSoccer(args, env);
+            if (toolResult?.error) {
+              sendAssistantReply(res, `Visualization failed: ${toolResult.error}`);
+              return;
+            }
             if (toolResult?.image_base64) {
               imageAttachment = toolResult;
               visualizationHandled = true;
