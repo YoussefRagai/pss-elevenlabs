@@ -251,6 +251,14 @@ function extractParamsFromPrompt(prompt, memory) {
   return params;
 }
 
+function parseBlockedShotsPlayersPrompt(text) {
+  const normalized = normalizePrompt(text);
+  if (!/(block|blocked|blocks)/i.test(normalized)) return null;
+  if (!/shot/i.test(normalized)) return null;
+  if (!/(who|which players|players)/i.test(normalized)) return null;
+  return { type: "players_blocked_shots" };
+}
+
 function buildQueryTemplate(query, params) {
   if (!query) return null;
   let template = query;
@@ -453,6 +461,36 @@ function rememberLastPassMap(memory, payload) {
 
 function getLastPassMap(memory) {
   return memory?.scopes?.last_pass_map || null;
+}
+
+function getLastMatchContext(memory) {
+  return memory?.scopes?.last_match || null;
+}
+
+function setLastMatchContext(memory, payload) {
+  if (!payload?.match_id) return;
+  const updated = { ...memory };
+  updated.scopes = updated.scopes || {};
+  updated.scopes.last_match = {
+    match_id: payload.match_id,
+    teams: payload.teams || null,
+  };
+  saveMemory(updated);
+}
+
+function getLastTeams(memory) {
+  return memory?.scopes?.last_teams || null;
+}
+
+function setLastTeams(memory, teamA, teamB) {
+  if (!teamA || !teamB) return;
+  const updated = { ...memory };
+  updated.scopes = updated.scopes || {};
+  updated.scopes.last_teams = {
+    team_a: teamA,
+    team_b: teamB,
+  };
+  saveMemory(updated);
 }
 
 function getPending() {
@@ -1274,7 +1312,12 @@ function sanitizeAnalysisText(text) {
   return cleaned || null;
 }
 
-function enforceAnalysisStyle(text) {
+function wantsDeepAnalysis(prompt) {
+  if (!prompt) return false;
+  return /(deep|detailed|detail|break down|full analysis|in-depth|advanced)/i.test(prompt);
+}
+
+function enforceAnalysisStyle(text, prompt) {
   if (!text) return null;
   let cleaned = String(text).trim();
   if (!/chart above|image above|figure above|visual above/i.test(cleaned)) {
@@ -1284,7 +1327,7 @@ function enforceAnalysisStyle(text) {
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  if (sentences.length > 4) {
+  if (!wantsDeepAnalysis(prompt) && sentences.length > 4) {
     cleaned = sentences.slice(0, 4).join(" ");
   }
   return cleaned;
@@ -1324,7 +1367,8 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
         null
       );
       const text = enforceAnalysisStyle(
-        sanitizeAnalysisText(response?.choices?.[0]?.message?.content)
+        sanitizeAnalysisText(response?.choices?.[0]?.message?.content),
+        userPrompt
       );
       if (text) return text;
     } catch (error) {
@@ -2472,6 +2516,11 @@ async function proxyChat(req, res) {
         : resolveAlias(lastQuestionRaw, memory);
       const lastQuestion = resolvedQuestion;
 
+      const baseParams = extractParamsFromPrompt(lastQuestionRaw, memory);
+      if (baseParams?.team_a && baseParams?.team_b) {
+        setLastTeams(memory, baseParams.team_a, baseParams.team_b);
+      }
+
       const arrowsRequested = /arrow|arrows|trajectory|trajector|direction/i.test(lastQuestionRaw);
       if (arrowsRequested) {
         const lastPass = getLastPassMap(memory);
@@ -2539,6 +2588,62 @@ async function proxyChat(req, res) {
         return;
       }
 
+      const blockedShotsPlayers = parseBlockedShotsPlayersPrompt(lastQuestionRaw);
+      if (blockedShotsPlayers) {
+        const lastMatch = getLastMatchContext(memory);
+        let matchId = lastMatch?.match_id || null;
+        let teams = lastMatch?.teams || getLastTeams(memory);
+        if (!matchId && teams?.team_a && teams?.team_b) {
+          const safeA = teams.team_a.replace(/'/g, "''");
+          const safeB = teams.team_b.replace(/'/g, "''");
+          const pickMatchQuery =
+            "select m.id from matches m " +
+            "join teams th on m.home_team_id = th.id " +
+            "join teams ta on m.away_team_id = ta.id " +
+            "where (th.name ilike '%" +
+            safeA +
+            "%' and ta.name ilike '%" +
+            safeB +
+            "%') or (th.name ilike '%" +
+            safeB +
+            "%' and ta.name ilike '%" +
+            safeA +
+            "%') " +
+            "order by m.date_time desc limit 1";
+          const pickResult = await runSqlRpc(pickMatchQuery, env);
+          matchId = pickResult.data?.[0]?.id || null;
+        }
+        if (!matchId) {
+          sendAssistantReply(
+            res,
+            "Which match should I use? You can share a match ID or specify the teams/season."
+          );
+          return;
+        }
+        const blockQuery =
+          "select player_name, count(*) as blocks from viz_match_events_with_match " +
+          `where match_id = ${matchId} ` +
+          "and (event_name ilike '%block%' or category_name ilike '%block%') " +
+          "and player_name is not null " +
+          "group by player_name " +
+          "order by blocks desc";
+        const blockResult = await runSqlRpc(blockQuery, env);
+        const rows = blockResult.data || [];
+        if (!rows.length) {
+          sendAssistantReply(res, "I couldn’t find any block events for that match.");
+          return;
+        }
+        const lines = rows
+          .slice(0, 20)
+          .map((row) => `- ${row.player_name}: ${row.blocks}`);
+        sendAssistantReply(
+          res,
+          `Players who blocked shots in match ${matchId}:\n${lines.join("\n")}`
+        );
+        setLastMatchContext(memory, { match_id: matchId, teams });
+        return;
+      }
+
       const randomShotMap = parseRandomShotMapPrompt(lastQuestion);
       if (randomShotMap) {
         const safeTeam = randomShotMap.team.replace(/'/g, "''");
@@ -2578,6 +2683,7 @@ async function proxyChat(req, res) {
           `Here are all shots for ${randomShotMap.team} in match ${matchId}.`,
           image
         );
+        setLastMatchContext(memory, { match_id: matchId, teams: { team_a: randomShotMap.team } });
         return;
       }
 
@@ -2812,6 +2918,7 @@ async function proxyChat(req, res) {
           image
         );
         rememberLastPassMap(memory, { team: randomPasses.team, match_id: matchId });
+        setLastMatchContext(memory, { match_id: matchId, teams: { team_a: randomPasses.team } });
         return;
       }
 
@@ -2850,6 +2957,7 @@ async function proxyChat(req, res) {
           `Here are all shots for ${randomShots.team} in match ${matchId}.`,
           image
         );
+        setLastMatchContext(memory, { match_id: matchId, teams: { team_a: randomShots.team } });
         return;
       }
 
