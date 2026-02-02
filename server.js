@@ -140,6 +140,7 @@ function buildActionPlan(prompt, memory) {
       : "general",
     forceTool: null,
     summary: "",
+    clarification: null,
   };
 
   if (plan.intent === "visual") {
@@ -154,6 +155,20 @@ function buildActionPlan(prompt, memory) {
   if (params.season) entities.push(`season=${params.season}`);
   if (params.last_n) entities.push(`last_n=${params.last_n}`);
   plan.summary = `intent=${plan.intent}${entities.length ? `; ${entities.join("; ")}` : ""}`;
+
+  if (plan.intent === "visual" && /match/i.test(cleaned)) {
+    const hasSeason = /\d{4}\/\d{4}/.test(cleaned);
+    const hasMatchId = /match\s*id/i.test(cleaned);
+    const hasOpponent = detectMultiTeamPrompt(cleaned);
+    if (!hasMatchId && !hasSeason) {
+      plan.clarification =
+        "Which match should I use? You can provide a season (e.g., 2023/2024), a match ID, or the opponent.";
+    } else if (!hasMatchId && !hasOpponent) {
+      plan.clarification =
+        "Which opponent or match ID should I use for the match request?";
+    }
+  }
+
   return plan;
 }
 
@@ -2643,6 +2658,10 @@ async function proxyChat(req, res) {
       }
 
       const actionPlan = buildActionPlan(lastQuestionRaw, memory);
+      if (actionPlan?.clarification) {
+        sendAssistantReply(res, actionPlan.clarification);
+        return;
+      }
 
       const arrowsRequested = /arrow|arrows|trajectory|trajector|direction/i.test(lastQuestionRaw);
       if (arrowsRequested) {
