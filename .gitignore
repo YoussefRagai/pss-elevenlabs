@@ -4,3 +4,4 @@ __pycache__/
 *.log
 *.pid
 *.DS_Store
+kora.agent.json

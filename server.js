@@ -2216,6 +2216,62 @@ async function handleHealth(req, res) {
   sendJson(res, allOk ? 200 : 503, { status: allOk ? "ok" : "degraded", services: results });
 }
 
+async function handleVoiceTool(req, res) {
+  const env = parseEnvFile();
+  const sharedSecret = env.ELEVENLABS_TOOL_SECRET;
+  if (sharedSecret) {
+    const provided = req.headers["x-pss-tool-secret"];
+    if (!provided || provided !== sharedSecret) {
+      sendJson(res, 401, { error: "Unauthorized tool call." });
+      return;
+    }
+  }
+
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+  });
+
+  req.on("end", async () => {
+    let payload;
+    try {
+      payload = JSON.parse(body || "{}");
+    } catch (error) {
+      sendJson(res, 400, { error: "Invalid JSON" });
+      return;
+    }
+
+    const query = String(payload.query || payload.text || "").trim();
+    if (!query) {
+      sendJson(res, 400, { error: "Missing query." });
+      return;
+    }
+
+    try {
+      const response = await callWithTimeout(
+        `http://127.0.0.1:${PORT}/api/chat`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "openai/gpt-oss-120b:free",
+            messages: [{ role: "user", content: query }],
+          }),
+        },
+        120000
+      );
+      const data = await response.json().catch(() => ({}));
+      let text = data?.choices?.[0]?.message?.content || "(no response)";
+      if (data?.image?.image_base64) {
+        text += " A visualization was generated in the dashboard.";
+      }
+      sendJson(res, 200, { result: text });
+    } catch (error) {
+      sendJson(res, 500, { error: error.message || "Tool error" });
+    }
+  });
+}
+
 async function proxyChat(req, res) {
   const env = parseEnvFile();
   const apiKey = env.OPENROUTER_API_KEY;
@@ -3074,6 +3130,15 @@ const server = http.createServer((req, res) => {
     handleHealth(req, res).catch((error) =>
       sendJson(res, 500, { status: "error", error: error.message || String(error) })
     );
+    return;
+  }
+
+  if (req.url.startsWith("/api/voice_tool")) {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    handleVoiceTool(req, res);
     return;
   }
 
