@@ -1274,6 +1274,22 @@ function sanitizeAnalysisText(text) {
   return cleaned || null;
 }
 
+function enforceAnalysisStyle(text) {
+  if (!text) return null;
+  let cleaned = String(text).trim();
+  if (!/chart above|image above|figure above|visual above/i.test(cleaned)) {
+    cleaned = `As shown in the chart above, ${cleaned}`;
+  }
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (sentences.length > 4) {
+    cleaned = sentences.slice(0, 4).join(" ");
+  }
+  return cleaned;
+}
+
 async function analyzeVisualization(userPrompt, image, apiKey) {
   if (!apiKey || !image?.data_preview?.length) return null;
   const prompt = buildAnalysisPrompt(
@@ -1298,7 +1314,7 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
             {
               role: "system",
               content:
-                "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Keep it under 6 sentences. Do NOT include images, data URIs, code blocks, or raw data dumps.",
+                "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Use exactly 3–4 sentences by default unless the user explicitly asks for deeper analysis. Always reference the visualization by saying \"chart above\" in your response. Do NOT include images, data URIs, code blocks, or raw data dumps.",
             },
             { role: "user", content: prompt },
           ],
@@ -1307,7 +1323,9 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
         1,
         null
       );
-      const text = sanitizeAnalysisText(response?.choices?.[0]?.message?.content);
+      const text = enforceAnalysisStyle(
+        sanitizeAnalysisText(response?.choices?.[0]?.message?.content)
+      );
       if (text) return text;
     } catch (error) {
       // Try next fallback model
