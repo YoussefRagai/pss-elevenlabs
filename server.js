@@ -2494,6 +2494,48 @@ async function proxyChat(req, res) {
         return;
       }
 
+      const randomShotMap = parseRandomShotMapPrompt(lastQuestion);
+      if (randomShotMap) {
+        const safeTeam = randomShotMap.team.replace(/'/g, "''");
+        const seasonClause = randomShotMap.season
+          ? `and season_name ilike '${seasonLikePattern(randomShotMap.season)}' `
+          : "";
+        const pickMatchQuery =
+          "select match_id from viz_match_events_with_match " +
+          `where team_name ilike '%${safeTeam}%' ` +
+          "and event_name in ('Shoot','Shoot Location','Penalty') " +
+          seasonClause +
+          "group by match_id order by random() limit 1";
+        const pickResult = await runSqlRpc(pickMatchQuery, env);
+        const matchId = pickResult.data?.[0]?.match_id;
+        if (!matchId) {
+          sendAssistantReply(res, `I couldn't find any matches for ${randomShotMap.team}.`);
+          return;
+        }
+        const shotQuery =
+          "select x, y from viz_match_events_with_match " +
+          `where match_id = ${matchId} ` +
+          `and team_name ilike '%${safeTeam}%' ` +
+          "and event_name in ('Shoot','Shoot Location','Penalty')";
+        const image = await renderMplSoccerAndLearn(
+          {
+            chart_type: "shot_map",
+            query: shotQuery,
+            title: `${randomShotMap.team} shots`,
+            subtitle: `Match ID ${matchId}`
+          },
+          env,
+          lastQuestionRaw,
+          memory
+        );
+        sendAssistantReply(
+          res,
+          `Here are all shots for ${randomShotMap.team} in match ${matchId}.`,
+          image
+        );
+        return;
+      }
+
       const semanticHints = loadSemanticHints();
       const learnedTemplates = semanticHints?.learned_templates || [];
       const learnedExact = learnedTemplates.find(
@@ -2686,48 +2728,6 @@ async function proxyChat(req, res) {
           return;
         }
         sendAssistantReply(res, `Block map for ${blockMap.team}.`, image);
-        return;
-      }
-
-      const randomShotMap = parseRandomShotMapPrompt(lastQuestion);
-      if (randomShotMap) {
-        const safeTeam = randomShotMap.team.replace(/'/g, "''");
-        const seasonClause = randomShotMap.season
-          ? `and season_name ilike '${seasonLikePattern(randomShotMap.season)}' `
-          : "";
-        const pickMatchQuery =
-          "select match_id from viz_match_events_with_match " +
-          `where team_name ilike '%${safeTeam}%' ` +
-          "and event_name in ('Shoot','Shoot Location','Penalty') " +
-          seasonClause +
-          "group by match_id order by random() limit 1";
-        const pickResult = await runSqlRpc(pickMatchQuery, env);
-        const matchId = pickResult.data?.[0]?.match_id;
-        if (!matchId) {
-          sendAssistantReply(res, `I couldn't find any matches for ${randomShotMap.team}.`);
-          return;
-        }
-        const shotQuery =
-          "select x, y from viz_match_events_with_match " +
-          `where match_id = ${matchId} ` +
-          `and team_name ilike '%${safeTeam}%' ` +
-          "and event_name in ('Shoot','Shoot Location','Penalty')";
-        const image = await renderMplSoccerAndLearn(
-          {
-            chart_type: "shot_map",
-            query: shotQuery,
-            title: `${randomShotMap.team} shots`,
-            subtitle: `Match ID ${matchId}`
-          },
-          env,
-          lastQuestionRaw,
-          memory
-        );
-        sendAssistantReply(
-          res,
-          `Here are all shots for ${randomShotMap.team} in match ${matchId}.`,
-          image
-        );
         return;
       }
 
