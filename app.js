@@ -79,7 +79,7 @@ function setEnvStatus() {
   envStatus.textContent = "Supabase MCP ready · key stays on server";
 }
 
-async function sendToOpenRouter(messageList) {
+async function sendToOpenRouter(messageList, source) {
   const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
 
   const response = await fetch("/api/chat", {
@@ -92,6 +92,7 @@ async function sendToOpenRouter(messageList) {
       temperature: settings.temperature ?? 0.7,
       max_tokens: settings.maxTokens ?? 1024,
       messages: messageList,
+      source,
     }),
   });
 
@@ -146,7 +147,7 @@ function stopFiller() {
   }
 }
 
-async function processUserMessage(content) {
+async function processUserMessage(content, options = {}) {
   if (state.busy) {
     pendingInputs.push(content);
     return;
@@ -161,7 +162,7 @@ async function processUserMessage(content) {
   lockComposer(true);
 
   try {
-    const reply = await sendToOpenRouter(buildMessagePayload());
+    const reply = await sendToOpenRouter(buildMessagePayload(), options.source);
     stopFiller();
     thinking.remove();
     const assistantMessage = { role: "assistant", content: reply.content };
@@ -226,7 +227,7 @@ setEnvStatus();
 window.handleVoiceInput = (text) => {
   const content = String(text || "").trim();
   if (!content) return;
-  processUserMessage(content);
+  processUserMessage(content, { source: "voice" });
 };
 
 window.handleVoiceAssistant = (text) => {

@@ -909,6 +909,13 @@ function getLastUserMessage(messages) {
   return "";
 }
 
+function getLastUserMessageIndex(messages) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") return i;
+  }
+  return -1;
+}
+
 function normalizePrompt(text) {
   return (text || "").trim().replace(/\s+/g, " ").replace(/[?.!]+$/, "");
 }
@@ -969,6 +976,135 @@ function fuzzyLikePattern(value) {
   return compact.split("").join("%");
 }
 
+function extractCandidatePhrases(text) {
+  const normalized = String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\\s]/g, " ")
+    .replace(/\\s+/g, " ")
+    .trim();
+  if (!normalized) return [];
+  const tokens = normalized.split(" ").filter((t) => t.length >= 3);
+  const stop = new Set([
+    "match",
+    "season",
+    "shots",
+    "shot",
+    "passes",
+    "pass",
+    "blocks",
+    "block",
+    "goals",
+    "goal",
+    "assistant",
+    "kora",
+    "cora",
+    "please",
+    "show",
+    "all",
+    "from",
+    "versus",
+    "against",
+    "between",
+    "compare",
+  ]);
+  const phrases = new Set();
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!stop.has(tokens[i])) phrases.add(tokens[i]);
+    if (i + 1 < tokens.length) {
+      const bigram = `${tokens[i]} ${tokens[i + 1]}`;
+      if (!stop.has(tokens[i]) && !stop.has(tokens[i + 1])) phrases.add(bigram);
+    }
+    if (i + 2 < tokens.length) {
+      const trigram = `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]}`;
+      if (
+        !stop.has(tokens[i]) &&
+        !stop.has(tokens[i + 1]) &&
+        !stop.has(tokens[i + 2])
+      ) {
+        phrases.add(trigram);
+      }
+    }
+  }
+  return Array.from(phrases).slice(0, 6);
+}
+
+async function findTeamMatch(env, candidate) {
+  if (!candidate) return null;
+  const safe = candidate.replace(/'/g, "''");
+  const fuzzy = fuzzyLikePattern(candidate);
+  const query =
+    "select name from teams " +
+    "where name ilike '%" +
+    safe +
+    "%' or name ilike '%" +
+    fuzzy +
+    "%' " +
+    "order by length(name) desc limit 1";
+  const result = await runSqlRpc(query, env);
+  return result.data?.[0]?.name || null;
+}
+
+async function findPlayerMatch(env, candidate) {
+  if (!candidate) return null;
+  const safe = candidate.replace(/'/g, "''");
+  const fuzzy = fuzzyLikePattern(candidate);
+  const query =
+    "select player_name, player_nickname from players " +
+    "where player_name ilike '%" +
+    safe +
+    "%' or player_nickname ilike '%" +
+    safe +
+    "%' or player_name ilike '%" +
+    fuzzy +
+    "%' or player_nickname ilike '%" +
+    fuzzy +
+    "%' " +
+    "limit 1";
+  const result = await runSqlRpc(query, env);
+  return result.data?.[0] || null;
+}
+
+async function resolveTranscriptEntities(text, env, memory) {
+  let updated = String(text || "");
+  const aliases = memory?.aliases || {};
+  Object.entries(aliases).forEach(([key, value]) => {
+    const re = buildAliasRegex(key);
+    if (re.test(updated)) {
+      updated = updated.replace(re, value.value || key);
+    }
+  });
+
+  const candidates = extractCandidatePhrases(updated);
+  for (const candidate of candidates) {
+    const team = await findTeamMatch(env, candidate);
+    if (team) {
+      const re = buildAliasRegex(candidate);
+      updated = updated.replace(re, team);
+      if (!aliases[candidate]) {
+        aliases[candidate] = { type: "team_name", value: team };
+      }
+      continue;
+    }
+    const player = await findPlayerMatch(env, candidate);
+    if (player?.player_name) {
+      const re = buildAliasRegex(candidate);
+      updated = updated.replace(re, player.player_name);
+      if (!aliases[candidate]) {
+        aliases[candidate] = { type: "player_name", value: player.player_name };
+      }
+    } else if (player?.player_nickname) {
+      const re = buildAliasRegex(candidate);
+      updated = updated.replace(re, player.player_nickname);
+      if (!aliases[candidate]) {
+        aliases[candidate] = { type: "player_nickname", value: player.player_nickname };
+      }
+    }
+  }
+
+  const updatedMemory = { ...memory, aliases };
+  saveMemory(updatedMemory);
+  return updated;
+}
 function seasonLikePattern(value) {
   const cleaned = String(value || "").replace(/[^0-9]/g, "");
   if (!cleaned) return "";
@@ -2634,6 +2770,28 @@ async function proxyChat(req, res) {
 
     try {
       const memory = getMemory();
+      const source = payload?.source || "chat";
+      if (source === "voice" && Array.isArray(payload.messages)) {
+        const lastUserIndex = getLastUserMessageIndex(payload.messages);
+        if (lastUserIndex >= 0) {
+          const rawVoice = payload.messages[lastUserIndex]?.content || "";
+          if (rawVoice) {
+            try {
+              const resolvedVoice = await resolveTranscriptEntities(rawVoice, env, memory);
+              if (resolvedVoice && resolvedVoice !== rawVoice) {
+                payload.messages[lastUserIndex] = {
+                  ...payload.messages[lastUserIndex],
+                  content: resolvedVoice,
+                };
+              }
+            } catch (error) {
+              if (process.env.DEBUG_TOOLS === "true") {
+                console.log("Voice resolver failed:", error.message || error);
+              }
+            }
+          }
+        }
+      }
       const tools = buildToolsSchema();
       const mcpSystem = {
         role: "system",

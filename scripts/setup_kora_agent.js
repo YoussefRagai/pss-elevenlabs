@@ -8,6 +8,11 @@ const toolUrl =
   process.env.PSS_TOOL_URL ||
   "https://pss-elevenlabs-production.up.railway.app/api/voice_tool";
 const toolSecret = process.env.ELEVENLABS_TOOL_SECRET || "";
+const voiceId = process.env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB";
+const agentLanguage = process.env.ELEVENLABS_AGENT_LANG || "auto";
+const asrLanguage = process.env.ELEVENLABS_ASR_LANG || "auto";
+const ttsModel = process.env.ELEVENLABS_TTS_MODEL || "eleven_turbo_v2";
+const llmModel = process.env.ELEVENLABS_LLM_MODEL || "eleven-multilingual-v1";
 
 if (!apiKey) {
   console.error("Missing ELEVENLABS_API_KEY in environment.");
@@ -109,6 +114,8 @@ async function upsertAgent(toolId) {
     "Always use the pss_query tool to answer football analytics or database questions.",
     "If a visualization is requested, call the tool and then tell the user that the visual is available in the dashboard.",
     "If the question is not about football analytics, answer briefly and politely.",
+    "Respond in the user's language and keep the tone professional and concise.",
+    "If the request is processing, you may use short filler phrases in the user's language.",
     "Ask at most one clarification question when needed.",
   ].join(" ");
 
@@ -121,19 +128,19 @@ async function upsertAgent(toolId) {
           tool_ids: toolId ? [toolId] : [],
         },
         llm: {
-          model: "eleven-multilingual-v1",
+          model: llmModel,
           temperature: 0.2,
         },
-        language: "en",
+        language: agentLanguage,
       },
       tts: {
-        model_id: "eleven_turbo_v2",
-        voice_id: "pNInz6obpgDQGcFmaJgB",
+        model_id: ttsModel,
+        voice_id: voiceId,
         agent_output_audio_format: "pcm_16000",
       },
       asr: {
         model_id: "nova-2-general",
-        language: "auto",
+        language: asrLanguage,
       },
       conversation: {
         max_duration_seconds: 1800,
