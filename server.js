@@ -2690,6 +2690,7 @@ async function proxyChat(req, res) {
         const pickMatchQuery =
           "select match_id from viz_match_events_with_match " +
           `where team_name ilike '%${safeTeam}%' ` +
+          "and event_name in ('Shoot','Shoot Location','Penalty') " +
           seasonClause +
           "group by match_id order by random() limit 1";
         const pickResult = await runSqlRpc(pickMatchQuery, env);
@@ -2728,6 +2729,7 @@ async function proxyChat(req, res) {
         const pickMatchQuery =
           "select match_id from viz_match_events_with_match " +
           `where team_name ilike '%${safeTeam}%' ` +
+          "and event_name in ('Shoot','Shoot Location','Penalty') " +
           "group by match_id order by random() limit 1";
         const pickResult = await runSqlRpc(pickMatchQuery, env);
         const matchId = pickResult.data?.[0]?.match_id;
@@ -2766,6 +2768,7 @@ async function proxyChat(req, res) {
         const pickMatchQuery =
           "select match_id from viz_match_events_with_match " +
           `where team_name ilike '%${safeTeam}%' ` +
+          "and event_name in ('Shoot','Shoot Location','Penalty') " +
           "group by match_id order by random() limit 1";
         const pickResult = await runSqlRpc(pickMatchQuery, env);
         const matchId = pickResult.data?.[0]?.match_id;
