@@ -33,7 +33,13 @@ function request(method, path, body) {
         hostname: url.hostname,
         path: `${url.pathname}${url.search}`,
         headers: requestHeaders,
-        lookup: (hostname, opts, cb) => dns.lookup(hostname, { family: 4 }, cb),
+        lookup: (hostname, opts, cb) => {
+          let callback = cb;
+          if (typeof opts === "function") {
+            callback = opts;
+          }
+          return dns.lookup(hostname, { family: 4 }, callback);
+        },
       },
       (res) => {
         let raw = "";
