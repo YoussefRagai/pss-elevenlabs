@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const fs = require("fs");
-const https = require("https");
+const { execFileSync } = require("child_process");
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -20,50 +20,38 @@ const headers = {
 };
 
 function request(method, path, body) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(`${API_BASE}${path}`);
-    const data = body ? JSON.stringify(body) : null;
-    const requestHeaders = { ...headers };
-    if (data) requestHeaders["Content-Length"] = Buffer.byteLength(data);
-
-    const req = https.request(
-      {
-        method,
-        hostname: url.hostname,
-        path: `${url.pathname}${url.search}`,
-        headers: requestHeaders,
-        family: 4,
-      },
-      (res) => {
-        let raw = "";
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
-        res.on("end", () => {
-          let payload = {};
-          try {
-            payload = JSON.parse(raw || "{}");
-          } catch (error) {
-            payload = {};
-          }
-          if (res.statusCode < 200 || res.statusCode >= 300) {
-            const detail =
-              payload?.detail || payload?.error || payload?.message || JSON.stringify(payload);
-            reject(new Error(detail || `HTTP ${res.statusCode}`));
-            return;
-          }
-          resolve(payload);
-        });
-      }
-    );
-
-    req.setTimeout(15000, () => {
-      req.destroy(new Error("Request timeout"));
-    });
-    req.on("error", reject);
-    if (data) req.write(data);
-    req.end();
-  });
+  const url = `${API_BASE}${path}`;
+  const args = [
+    "-s",
+    "-X",
+    method,
+    url,
+    "-H",
+    `xi-api-key: ${apiKey}`,
+    "-H",
+    "Content-Type: application/json",
+    "-w",
+    "\\n__STATUS__%{http_code}",
+  ];
+  if (body) {
+    args.push("-d", JSON.stringify(body));
+  }
+  const raw = execFileSync("curl", args, { encoding: "utf8" });
+  const parts = raw.split("\n__STATUS__");
+  const bodyText = parts[0] || "{}";
+  const statusCode = Number(parts[1] || "0");
+  let payload = {};
+  try {
+    payload = JSON.parse(bodyText || "{}");
+  } catch (error) {
+    payload = {};
+  }
+  if (statusCode < 200 || statusCode >= 300) {
+    const detail =
+      payload?.detail || payload?.error || payload?.message || JSON.stringify(payload);
+    throw new Error(detail || `HTTP ${statusCode}`);
+  }
+  return payload;
 }
 
 async function getTools() {
