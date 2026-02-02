@@ -4,6 +4,7 @@ const path = require("path");
 
 const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
+const DEBUG_TOOLS = process.env.DEBUG_TOOLS === "true";
 const SCHEMA_TTL_MS = 5 * 60 * 1000;
 const SEMANTIC_PATH = path.join(ROOT, "semantic.json");
 const MEMORY_PATH = path.join(ROOT, "memory.json");
@@ -3414,8 +3415,10 @@ async function proxyChat(req, res) {
           }
 
           if (call.function?.name === "get_schema") {
+            if (DEBUG_TOOLS) console.log("[tools] get_schema", args?.table || "all");
             toolResult = getSchemaResult(args, schema);
           } else if (call.function?.name === "get_semantic_hints") {
+            if (DEBUG_TOOLS) console.log("[tools] get_semantic_hints");
             toolResult = await getSemanticHints(env);
           } else if (call.function?.name === "query_public_table") {
             toolResult = await queryPublicTable(args, env, schema);
