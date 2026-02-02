@@ -1258,6 +1258,22 @@ function buildAnalysisPrompt(userPrompt, dataPreview, rowCount) {
   ].join("\n");
 }
 
+function sanitizeAnalysisText(text) {
+  if (!text) return null;
+  let cleaned = String(text).trim();
+  // Strip markdown image tags and any embedded data URIs.
+  cleaned = cleaned.replace(/!\[[^\]]*\]\([^\)]*\)/g, "");
+  const dataUriIndex = cleaned.toLowerCase().indexOf("data:image");
+  if (dataUriIndex >= 0) {
+    cleaned = cleaned.slice(0, dataUriIndex).trim();
+  }
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, "").trim();
+  if (cleaned.length > 800) {
+    cleaned = `${cleaned.slice(0, 800).trim()}…`;
+  }
+  return cleaned || null;
+}
+
 async function analyzeVisualization(userPrompt, image, apiKey) {
   if (!apiKey || !image?.data_preview?.length) return null;
   const prompt = buildAnalysisPrompt(
@@ -1282,7 +1298,7 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
             {
               role: "system",
               content:
-                "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Keep it under 6 sentences.",
+                "You are a football analytics assistant. Provide a concise analysis tied to the user's request. Highlight key patterns or anomalies. Keep it under 6 sentences. Do NOT include images, data URIs, code blocks, or raw data dumps.",
             },
             { role: "user", content: prompt },
           ],
@@ -1291,7 +1307,7 @@ async function analyzeVisualization(userPrompt, image, apiKey) {
         1,
         null
       );
-      const text = response?.choices?.[0]?.message?.content?.trim();
+      const text = sanitizeAnalysisText(response?.choices?.[0]?.message?.content);
       if (text) return text;
     } catch (error) {
       // Try next fallback model
