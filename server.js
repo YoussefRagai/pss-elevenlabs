@@ -1050,6 +1050,18 @@ function parseCarryMapPrompt(text) {
   return { player: playerMatch[1].trim(), season: seasonMatch?.[1]?.trim() || null };
 }
 
+function parseTeamBlockMapPrompt(text) {
+  const normalized = normalizePrompt(text);
+  if (!/(block|blocks)/i.test(normalized)) return null;
+  if (!/(shot map|pitch plot|map)/i.test(normalized)) return null;
+  const teamMatch = normalized.match(/blocks?\s+that\s+(.+?)\s+made/i) ||
+    normalized.match(/blocks?\s+by\s+(.+?)(?:\s+in\s+the\s+|\s+in\s+|\s+from\s+|$)/i) ||
+    normalized.match(/map\s+of\s+all\s+the\s+blocks?\s+that\s+(.+?)\s+made/i);
+  const seasonMatch = normalized.match(/(\d{4}\/\d{4})/);
+  if (!teamMatch) return null;
+  return { team: teamMatch[1].trim(), season: seasonMatch?.[1]?.trim() || null };
+}
+
 function parseGoalsConcededPrompt(text) {
   const normalized = normalizePrompt(text);
   const match = normalized.match(/how many goals did (.+?) concede in the (\d{4}\/\d{4}) season/i);
@@ -2469,6 +2481,41 @@ async function proxyChat(req, res) {
           return;
         }
         sendAssistantReply(res, `Carry map for ${carryMap.player}.`, image);
+        return;
+      }
+
+      const blockMap = parseTeamBlockMapPrompt(lastQuestion);
+      if (blockMap) {
+        const safeTeam = blockMap.team.replace(/'/g, "''");
+        const fuzzyTeam = fuzzyLikePattern(blockMap.team);
+        const seasonClause = blockMap.season
+          ? `and m.season_name ilike '${seasonLikePattern(blockMap.season)}' `
+          : "";
+        const blockQuery =
+          "select e.x, e.y from v_events_full e " +
+          "join matches m on e.match_id = m.id " +
+          `where (e.team_name ilike '%${safeTeam}%' or e.team_name ilike '%${fuzzyTeam}%') ` +
+          seasonClause +
+          "and (e.event_name ilike '%block%' or e.category_name ilike '%block%')";
+        const image = await renderMplSoccerAndLearn(
+          {
+            chart_type: "shot_map",
+            query: blockQuery,
+            title: `${blockMap.team} blocks`,
+            subtitle: blockMap.season ? `Season ${blockMap.season}` : undefined
+          },
+          env,
+          lastQuestionRaw,
+          memory
+        );
+        if (image?.error) {
+          sendAssistantReply(
+            res,
+            `I couldn't find block events for ${blockMap.team}${blockMap.season ? ` in ${blockMap.season}` : ""}.`
+          );
+          return;
+        }
+        sendAssistantReply(res, `Block map for ${blockMap.team}.`, image);
         return;
       }
 
