@@ -2692,6 +2692,7 @@ async function handleVoiceTool(req, res) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "openai/gpt-oss-120b:free",
+            source: "voice",
             messages: [{ role: "user", content: query }],
           }),
         },
