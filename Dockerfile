@@ -12,7 +12,6 @@ RUN pip3 install --no-cache-dir -r /app/requirements.txt
 COPY . /app
 RUN chmod +x /app/start.sh
 
-ENV PORT=5173
-EXPOSE 5173
+EXPOSE 8080 8001
 
 CMD ["/app/start.sh"]
