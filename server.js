@@ -2712,6 +2712,8 @@ async function handleVoiceTool(req, res) {
 
     const jobId = randomUUID();
     broadcastVoiceEvent({ type: "voice_start", id: jobId, query });
+    const startedAt = Date.now();
+    console.log(`[voice_tool] start id=${jobId} len=${query.length}`);
 
     try {
       const response = await callWithTimeout(
@@ -2728,10 +2730,25 @@ async function handleVoiceTool(req, res) {
         120000
       );
       const data = await response.json().catch(() => ({}));
+      const elapsed = Date.now() - startedAt;
+      if (!response.ok) {
+        const detail = data?.error || data?.message || response.statusText || "Tool request failed.";
+        console.log(`[voice_tool] error id=${jobId} status=${response.status} ms=${elapsed} detail=${detail}`);
+        const fallbackText = `I ran into an issue fetching the answer. ${detail}`;
+        broadcastVoiceEvent({
+          type: "voice_error",
+          id: jobId,
+          error: detail,
+        });
+        sendJson(res, 200, { result: fallbackText });
+        return;
+      }
+
       let text = data?.choices?.[0]?.message?.content || "(no response)";
       if (data?.image?.image_base64) {
         text += " A visualization was generated in the dashboard.";
       }
+      console.log(`[voice_tool] success id=${jobId} ms=${elapsed}`);
       broadcastVoiceEvent({
         type: "voice_result",
         id: jobId,
@@ -2740,12 +2757,11 @@ async function handleVoiceTool(req, res) {
       });
       sendJson(res, 200, { result: text });
     } catch (error) {
-      broadcastVoiceEvent({
-        type: "voice_error",
-        id: jobId,
-        error: error.message || "Voice tool failed.",
-      });
-      sendJson(res, 500, { error: error.message || "Tool error" });
+      const elapsed = Date.now() - startedAt;
+      const detail = error.message || "Voice tool failed.";
+      console.log(`[voice_tool] exception id=${jobId} ms=${elapsed} detail=${detail}`);
+      broadcastVoiceEvent({ type: "voice_error", id: jobId, error: detail });
+      sendJson(res, 200, { result: `I ran into a tool error. ${detail}` });
     }
   });
 }
