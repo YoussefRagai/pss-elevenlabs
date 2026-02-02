@@ -829,6 +829,15 @@ function fuzzyLikePattern(value) {
   return compact.split("").join("%");
 }
 
+function seasonLikePattern(value) {
+  const cleaned = String(value || "").replace(/[^0-9]/g, "");
+  if (!cleaned) return "";
+  const first = cleaned.slice(0, 4);
+  const second = cleaned.slice(4);
+  if (second) return `%${first}%${second}%`;
+  return `%${first}%`;
+}
+
 function resolveAlias(text, memory) {
   const aliases = memory.aliases || {};
   let resolved = text;
@@ -2427,14 +2436,14 @@ async function proxyChat(req, res) {
       if (carryMap) {
         const safePlayer = carryMap.player.replace(/'/g, "''");
         const seasonClause = carryMap.season
-          ? `and m.season_name = '${carryMap.season.replace(/'/g, "''")}' `
+          ? `and m.season_name ilike '${seasonLikePattern(carryMap.season)}' `
           : "";
         const carryQuery =
           "select e.x, e.y from v_events_full e " +
           "join matches m on e.match_id = m.id " +
           `where (e.player_name ilike '%${safePlayer}%' or e.player_nickname ilike '%${safePlayer}%') ` +
           seasonClause +
-          "and (e.event_name ilike '%carry%' or e.category_name ilike '%carry%')";
+          "and (e.event_name ilike '%carry%' or e.category_name ilike '%carry%' or e.event_name ilike '%dribble%' or e.category_name ilike '%dribble%')";
         const image = await renderMplSoccerAndLearn(
           {
             chart_type: "shot_map",
@@ -2461,7 +2470,7 @@ async function proxyChat(req, res) {
       if (randomShotMap) {
         const safeTeam = randomShotMap.team.replace(/'/g, "''");
         const seasonClause = randomShotMap.season
-          ? `and season_name = '${randomShotMap.season.replace(/'/g, "''")}' `
+          ? `and season_name ilike '${seasonLikePattern(randomShotMap.season)}' `
           : "";
         const pickMatchQuery =
           "select match_id from viz_match_events_with_match " +
