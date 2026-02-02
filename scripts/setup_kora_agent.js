@@ -57,6 +57,9 @@ function request(method, path, body) {
       }
     );
 
+    req.setTimeout(15000, () => {
+      req.destroy(new Error("Request timeout"));
+    });
     req.on("error", reject);
     if (data) req.write(data);
     req.end();
