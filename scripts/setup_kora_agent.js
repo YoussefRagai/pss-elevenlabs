@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const https = require("https");
-const dns = require("dns");
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -33,13 +32,7 @@ function request(method, path, body) {
         hostname: url.hostname,
         path: `${url.pathname}${url.search}`,
         headers: requestHeaders,
-        lookup: (hostname, opts, cb) => {
-          let callback = cb;
-          if (typeof opts === "function") {
-            callback = opts;
-          }
-          return dns.lookup(hostname, { family: 4 }, callback);
-        },
+        family: 4,
       },
       (res) => {
         let raw = "";
