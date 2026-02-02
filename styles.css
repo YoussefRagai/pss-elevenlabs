@@ -65,55 +65,10 @@ body {
 .page {
   position: relative;
   z-index: 1;
-  padding: 32px 5vw 56px;
+  padding: 24px 5vw 56px;
   display: flex;
   flex-direction: column;
   gap: 24px;
-}
-
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--white);
-  box-shadow: var(--shadow);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.brand-mark {
-  width: 52px;
-  height: auto;
-}
-
-.brand-title {
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--navy);
-}
-
-.brand-subtitle {
-  color: var(--muted);
-  font-size: 13px;
-  letter-spacing: 0.2px;
-}
-
-.model-pill {
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-soft);
-  color: var(--navy);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .layout {
@@ -179,8 +134,8 @@ body.voice-active .meta-panel {
   width: 260px;
   height: 260px;
   border-radius: 50%;
-  border: none;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 208, 0, 0.7), rgba(0, 60, 113, 0.9));
+  border: 2px solid rgba(0, 60, 113, 0.15);
+  background: #ffffff;
   display: grid;
   place-items: center;
   margin: 32px auto 18px;
@@ -189,12 +144,10 @@ body.voice-active .meta-panel {
   box-shadow: 0 18px 35px rgba(0, 60, 113, 0.3);
 }
 
-.voice-orb .orb-core {
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
-  background: #ffffff;
-  opacity: 0.9;
+.voice-orb .orb-logo {
+  width: 120px;
+  height: auto;
+  display: block;
 }
 
 .voice-orb .orb-ring {
@@ -430,10 +383,5 @@ body.voice-active .meta-panel {
     left: 16px;
     top: 120px;
     width: auto;
-  }
-
-  .topbar {
-    flex-direction: column;
-    align-items: flex-start;
   }
 }
