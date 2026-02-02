@@ -145,6 +145,15 @@ function ensureTeamNameInQuery(query) {
   return query;
 }
 
+function ensureSeasonNameQuery(query) {
+  if (!query) return query;
+  if (!/season_name/i.test(query)) return query;
+  if (/from\\s+viz_match_events\\b/i.test(query)) {
+    return query.replace(/from\\s+viz_match_events\\b/i, "from viz_match_events_with_match");
+  }
+  return query;
+}
+
 function extractVisualOverrides(prompt) {
   const normalized = normalizePrompt(prompt);
   const markerRules = [];
@@ -2874,6 +2883,9 @@ async function proxyChat(req, res) {
             }
             if (args.series_split_field === "team_name" && args.query) {
               args.query = ensureTeamNameInQuery(args.query);
+            }
+            if (args.query) {
+              args.query = ensureSeasonNameQuery(args.query);
             }
             applyVisualOverrides(args, lastQuestionRaw);
             toolResult = await renderMplSoccer(args, env);
