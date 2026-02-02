@@ -901,11 +901,22 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function looksLikeNewQuestion(text) {
+  const normalized = normalizePrompt(text).toLowerCase();
+  return /(show|compare|shot map|pass map|heatmap|pitch plot|pass network|radar|pizza|bumpy|draw|visualize|plot|how many|what|which|who|when|where)/.test(
+    normalized
+  );
+}
+
 function handlePendingClarification(lastQuestion) {
   const pending = getPending();
   if (!pending) return null;
   const answer = normalizePrompt(lastQuestion);
   if (!answer) return null;
+  if (looksLikeNewQuestion(answer)) {
+    savePending(null);
+    return null;
+  }
 
   const memory = getMemory();
   if (pending.kind === "alias") {
