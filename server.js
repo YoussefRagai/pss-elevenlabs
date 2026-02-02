@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { randomUUID } = require("crypto");
 
 const PORT = process.env.PORT || 8080;
 const ROOT = __dirname;
@@ -9,6 +10,7 @@ const SCHEMA_TTL_MS = 5 * 60 * 1000;
 const SEMANTIC_PATH = path.join(ROOT, "semantic.json");
 const MEMORY_PATH = path.join(ROOT, "memory.json");
 const PENDING_PATH = path.join(ROOT, "pending.json");
+const voiceEventClients = new Set();
 
 const schemaCache = {
   data: null,
@@ -577,6 +579,30 @@ function savePending(pending) {
     return;
   }
   saveJson(PENDING_PATH, pending);
+}
+
+function broadcastVoiceEvent(payload) {
+  const data = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const client of voiceEventClients) {
+    try {
+      client.write(data);
+    } catch (error) {
+      // ignore broken clients
+    }
+  }
+}
+
+function handleVoiceEvents(req, res) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write("\n");
+  voiceEventClients.add(res);
+  req.on("close", () => {
+    voiceEventClients.delete(res);
+  });
 }
 
 function sendJson(res, status, payload) {
@@ -2684,6 +2710,9 @@ async function handleVoiceTool(req, res) {
       return;
     }
 
+    const jobId = randomUUID();
+    broadcastVoiceEvent({ type: "voice_start", id: jobId, query });
+
     try {
       const response = await callWithTimeout(
         `http://127.0.0.1:${PORT}/api/chat`,
@@ -2703,8 +2732,19 @@ async function handleVoiceTool(req, res) {
       if (data?.image?.image_base64) {
         text += " A visualization was generated in the dashboard.";
       }
+      broadcastVoiceEvent({
+        type: "voice_result",
+        id: jobId,
+        content: data?.choices?.[0]?.message?.content || "(no response)",
+        image: data?.image || null,
+      });
       sendJson(res, 200, { result: text });
     } catch (error) {
+      broadcastVoiceEvent({
+        type: "voice_error",
+        id: jobId,
+        error: error.message || "Voice tool failed.",
+      });
       sendJson(res, 500, { error: error.message || "Tool error" });
     }
   });
@@ -3806,6 +3846,15 @@ const server = http.createServer((req, res) => {
       return;
     }
     handleVoiceTool(req, res);
+    return;
+  }
+
+  if (req.url.startsWith("/api/voice_events")) {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    handleVoiceEvents(req, res);
     return;
   }
 
