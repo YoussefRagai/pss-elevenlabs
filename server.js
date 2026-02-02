@@ -1161,7 +1161,8 @@ async function callOpenRouter(payload, apiKey, retries = 2, fallbackModel = "moo
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       const message = err?.error?.message || err?.message || response.statusText;
-      if (fallbackModel && payload?.model !== fallbackModel) {
+      const shouldFallback = response.status >= 500 || response.status === 429;
+      if (shouldFallback && fallbackModel && payload?.model !== fallbackModel) {
         const fallbackPayload = { ...payload, model: fallbackModel };
         return callOpenRouter(fallbackPayload, apiKey, retries, null);
       }
