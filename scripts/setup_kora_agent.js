@@ -42,7 +42,7 @@ function request(method, path, body) {
   try {
     raw = execFileSync("curl", args, { encoding: "utf8" });
   } catch (error) {
-    throw new Error("curl request failed");
+    throw new Error(`curl request failed for ${path}`);
   }
   const parts = raw.split("\n__STATUS__");
   const bodyText = parts[0] || "{}";
@@ -153,7 +153,10 @@ async function upsertAgent(toolId) {
 }
 
 async function main() {
+  console.log("Setting up tool...");
   const toolId = await upsertTool();
+  console.log("Tool ready:", toolId);
+  console.log("Setting up agent...");
   const agentId = await upsertAgent(toolId);
   const output = { tool_id: toolId, agent_id: agentId, tool_url: toolUrl };
   fs.writeFileSync("kora.agent.json", JSON.stringify(output, null, 2));
