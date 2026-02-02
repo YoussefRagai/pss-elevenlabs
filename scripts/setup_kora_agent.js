@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 const fs = require("fs");
+const https = require("https");
+const dns = require("dns");
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -18,17 +20,48 @@ const headers = {
   "Content-Type": "application/json",
 };
 
-async function request(method, path, body) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
+function request(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${API_BASE}${path}`);
+    const data = body ? JSON.stringify(body) : null;
+    const requestHeaders = { ...headers };
+    if (data) requestHeaders["Content-Length"] = Buffer.byteLength(data);
+
+    const req = https.request(
+      {
+        method,
+        hostname: url.hostname,
+        path: `${url.pathname}${url.search}`,
+        headers: requestHeaders,
+        lookup: (hostname, opts, cb) => dns.lookup(hostname, { family: 4 }, cb),
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk) => {
+          raw += chunk;
+        });
+        res.on("end", () => {
+          let payload = {};
+          try {
+            payload = JSON.parse(raw || "{}");
+          } catch (error) {
+            payload = {};
+          }
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const detail =
+              payload?.detail || payload?.error || payload?.message || JSON.stringify(payload);
+            reject(new Error(detail || `HTTP ${res.statusCode}`));
+            return;
+          }
+          resolve(payload);
+        });
+      }
+    );
+
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.detail || payload?.error || payload?.message || response.statusText);
-  }
-  return payload;
 }
 
 async function getTools() {
