@@ -41,6 +41,11 @@ async function startConversation() {
           window.handleVoiceInput(text);
         }
       }
+      if ((source === "assistant" || source === "agent") && isFinal && text) {
+        if (window.handleVoiceAssistant) {
+          window.handleVoiceAssistant(text);
+        }
+      }
     },
     onConnect: () => {
       setStatus("Listening…", "active");

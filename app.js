@@ -21,6 +21,8 @@ const state = {
   busy: false,
 };
 const pendingInputs = [];
+let fillerTimer = null;
+let fillerStep = 0;
 
 function renderMessage(role, content) {
   const bubble = document.createElement("div");
@@ -121,6 +123,29 @@ function lockComposer(locked) {
   composer.querySelector("button").disabled = locked;
 }
 
+function startFiller(messageEl) {
+  const fillers = [
+    "Processing the dataset…",
+    "Pulling events from the database…",
+    "Preparing the visualization…",
+    "Finalizing the chart…",
+  ];
+  fillerStep = 0;
+  fillerTimer = setInterval(() => {
+    if (!messageEl) return;
+    const next = fillers[Math.min(fillerStep, fillers.length - 1)];
+    messageEl.textContent = next;
+    fillerStep += 1;
+  }, 1200);
+}
+
+function stopFiller() {
+  if (fillerTimer) {
+    clearInterval(fillerTimer);
+    fillerTimer = null;
+  }
+}
+
 async function processUserMessage(content) {
   if (state.busy) {
     pendingInputs.push(content);
@@ -131,11 +156,13 @@ async function processUserMessage(content) {
   renderMessage("user", content);
   saveChat();
 
-  const thinking = renderMessage("system", "Running query...");
+  const thinking = renderMessage("system", "Listening…");
+  startFiller(thinking);
   lockComposer(true);
 
   try {
     const reply = await sendToOpenRouter(buildMessagePayload());
+    stopFiller();
     thinking.remove();
     const assistantMessage = { role: "assistant", content: reply.content };
     state.messages.push(assistantMessage);
@@ -150,6 +177,7 @@ async function processUserMessage(content) {
     }
     saveChat();
   } catch (error) {
+    stopFiller();
     thinking.remove();
     renderMessage("system", error.message);
   } finally {
@@ -199,4 +227,13 @@ window.handleVoiceInput = (text) => {
   const content = String(text || "").trim();
   if (!content) return;
   processUserMessage(content);
+};
+
+window.handleVoiceAssistant = (text) => {
+  const content = String(text || "").trim();
+  if (!content) return;
+  const assistantMessage = { role: "assistant", content };
+  state.messages.push(assistantMessage);
+  renderMessage("assistant", content);
+  saveChat();
 };
