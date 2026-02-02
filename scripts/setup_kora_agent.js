@@ -94,11 +94,8 @@ async function upsertTool() {
   return created?.tool_id;
 }
 
-async function getAgents() {
-  return request("GET", "/convai/agents?search=Kora&archived=false");
-}
-
 async function upsertAgent(toolId) {
+  const agentIdEnv = process.env.ELEVENLABS_AGENT_ID;
   const systemPrompt = [
     "You are Kora, the Premium Sports Solutions (PSS) voice assistant.",
     "Always use the pss_query tool to answer football analytics or database questions.",
@@ -138,11 +135,9 @@ async function upsertAgent(toolId) {
     },
   };
 
-  const agents = await getAgents();
-  const existing = (agents?.agents || []).find((agent) => agent?.name === "Kora");
-  if (existing?.agent_id) {
-    const updated = await request("PATCH", `/convai/agents/${existing.agent_id}`, agentConfig);
-    return updated?.agent_id || existing.agent_id;
+  if (agentIdEnv) {
+    const updated = await request("PATCH", `/convai/agents/${agentIdEnv}`, agentConfig);
+    return updated?.agent_id || agentIdEnv;
   }
 
   const created = await request("POST", "/convai/agents/create", agentConfig);
