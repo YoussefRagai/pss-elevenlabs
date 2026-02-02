@@ -2435,13 +2435,15 @@ async function proxyChat(req, res) {
       const carryMap = parseCarryMapPrompt(lastQuestion);
       if (carryMap) {
         const safePlayer = carryMap.player.replace(/'/g, "''");
+        const fuzzyPlayer = fuzzyLikePattern(carryMap.player);
         const seasonClause = carryMap.season
           ? `and m.season_name ilike '${seasonLikePattern(carryMap.season)}' `
           : "";
         const carryQuery =
           "select e.x, e.y from v_events_full e " +
           "join matches m on e.match_id = m.id " +
-          `where (e.player_name ilike '%${safePlayer}%' or e.player_nickname ilike '%${safePlayer}%') ` +
+          `where (e.player_name ilike '%${safePlayer}%' or e.player_nickname ilike '%${safePlayer}%' ` +
+          `or e.player_name ilike '%${fuzzyPlayer}%' or e.player_nickname ilike '%${fuzzyPlayer}%') ` +
           seasonClause +
           "and (e.event_name ilike '%carry%' or e.category_name ilike '%carry%' or e.event_name ilike '%dribble%' or e.category_name ilike '%dribble%')";
         const image = await renderMplSoccerAndLearn(
