@@ -20,48 +20,62 @@
     </header>
 
     <main class="layout">
-      <section class="panel chat-panel">
-        <div class="chat-header">
-          <div>
-            <h2>CHAT</h2>
-            <p class="muted">System prompt stays inside this thread only.</p>
-          </div>
-          <div class="chat-actions">
-            <button id="clearChat" class="ghost">Clear</button>
-            <button id="toggleSystem" class="ghost">System Prompt</button>
-          </div>
-        </div>
-
-        <div id="systemBlock" class="system-block hidden">
-          <div class="system-title">System Prompt</div>
-          <textarea id="systemPrompt" rows="4" placeholder="Define how the assistant should behave for this chat..."></textarea>
-          <div class="system-hint">Applied to every message in this conversation only.</div>
-        </div>
-
-        <div id="messages" class="messages"></div>
-
-        <form id="composer" class="composer">
-          <input id="userInput" type="text" placeholder="Ask anything..." autocomplete="off" />
-          <button type="submit" class="primary">Send</button>
-        </form>
+      <section class="panel voice-panel">
+        <h2>VOICE</h2>
+        <p class="muted">Kora stays live until you hang up.</p>
+        <button id="voiceOrb" class="voice-orb" type="button" aria-label="Start or stop Kora">
+          <span class="orb-core"></span>
+          <span class="orb-ring"></span>
+        </button>
+        <div class="voice-label" id="voiceStatus">Kora idle</div>
+        <button id="voiceToggle" class="primary">Start Kora</button>
+        <div class="voice-hint">Click start, speak naturally, then press hang up to end.</div>
       </section>
 
-      <section class="panel meta-panel">
-        <h2>SESSION</h2>
-        <p class="muted">API key remains server-side via the local proxy.</p>
-        <div class="status" id="envStatus"></div>
-        <label class="field">
-          <span>Temperature</span>
-          <input id="temperature" type="range" min="0" max="1" step="0.05" value="0.7" />
-          <div class="range-value" id="temperatureValue">0.70</div>
-        </label>
-        <label class="field">
-          <span>Max Tokens</span>
-          <input id="maxTokens" type="number" min="64" max="4096" value="1024" />
-        </label>
-        <button id="saveSettings" class="primary">Save Settings</button>
-        <div id="status" class="status"></div>
-      </section>
+      <div class="chat-stack">
+        <section class="panel chat-panel">
+          <div class="chat-header">
+            <div>
+              <h2>CHAT</h2>
+              <p class="muted">System prompt stays inside this thread only.</p>
+            </div>
+            <div class="chat-actions">
+              <button id="clearChat" class="ghost">Clear</button>
+              <button id="toggleSystem" class="ghost">System Prompt</button>
+            </div>
+          </div>
+
+          <div id="systemBlock" class="system-block hidden">
+            <div class="system-title">System Prompt</div>
+            <textarea id="systemPrompt" rows="4" placeholder="Define how the assistant should behave for this chat..."></textarea>
+            <div class="system-hint">Applied to every message in this conversation only.</div>
+          </div>
+
+          <div id="messages" class="messages"></div>
+
+          <form id="composer" class="composer">
+            <input id="userInput" type="text" placeholder="Ask anything..." autocomplete="off" />
+            <button type="submit" class="primary">Send</button>
+          </form>
+        </section>
+
+        <section class="panel meta-panel">
+          <h2>SESSION</h2>
+          <p class="muted">API key remains server-side via the local proxy.</p>
+          <div class="status" id="envStatus"></div>
+          <label class="field">
+            <span>Temperature</span>
+            <input id="temperature" type="range" min="0" max="1" step="0.05" value="0.7" />
+            <div class="range-value" id="temperatureValue">0.70</div>
+          </label>
+          <label class="field">
+            <span>Max Tokens</span>
+            <input id="maxTokens" type="number" min="64" max="4096" value="1024" />
+          </label>
+          <button id="saveSettings" class="primary">Save Settings</button>
+          <div id="status" class="status"></div>
+        </section>
+      </div>
     </main>
   </div>
 

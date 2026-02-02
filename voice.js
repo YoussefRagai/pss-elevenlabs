@@ -1,28 +1,15 @@
 import { Conversation } from "https://cdn.jsdelivr.net/npm/@elevenlabs/client@0.6.1/+esm";
 
-const button = document.createElement("button");
-button.className = "voice-fab";
-button.type = "button";
-button.innerHTML = `
-  <span class="voice-fab-icon">🎙️</span>
-  <span class="voice-fab-text">Hold to talk</span>
-`;
-button.setAttribute("aria-label", "Hold to talk with Kora");
-document.body.appendChild(button);
-
-const status = document.createElement("div");
-status.className = "voice-status hidden";
-status.textContent = "Kora ready";
-document.body.appendChild(status);
+const orb = document.getElementById("voiceOrb");
+const toggleBtn = document.getElementById("voiceToggle");
+const statusLabel = document.getElementById("voiceStatus");
 
 let conversation = null;
-let ready = false;
-let pressed = false;
+let active = false;
 
 function setStatus(text, tone = "idle") {
-  status.textContent = text;
-  status.classList.remove("hidden", "active", "error");
-  status.classList.add(tone);
+  statusLabel.textContent = text;
+  statusLabel.dataset.state = tone;
 }
 
 async function getConversationToken() {
@@ -35,59 +22,77 @@ async function getConversationToken() {
   return data?.token;
 }
 
-async function ensureConversation() {
-  if (conversation) return;
-  setStatus("Connecting to Kora...", "active");
+async function startConversation() {
+  if (active) return;
+  setStatus("Connecting…", "active");
   const token = await getConversationToken();
   conversation = await Conversation.startSession({
     conversationToken: token,
     connectionType: "webrtc",
     onConnect: () => {
-      ready = true;
-      setStatus("Kora ready", "idle");
+      setStatus("Listening…", "active");
     },
     onDisconnect: () => {
-      ready = false;
+      active = false;
       conversation = null;
-      setStatus("Kora disconnected", "error");
+      orb.classList.remove("active");
+      toggleBtn.textContent = "Start Kora";
+      setStatus("Kora idle", "idle");
     },
     onError: (error) => {
-      ready = false;
+      active = false;
       conversation = null;
+      orb.classList.remove("active");
+      toggleBtn.textContent = "Start Kora";
       setStatus(error?.message || "Kora error", "error");
     },
   });
-  conversation.setMicMuted(true);
+  conversation.setMicMuted(false);
+  active = true;
+  orb.classList.add("active");
+  toggleBtn.textContent = "Hang Up";
+  setStatus("Listening…", "active");
 }
 
-async function startTalking() {
-  pressed = true;
+async function stopConversation() {
+  if (!conversation) {
+    setStatus("Kora idle", "idle");
+    return;
+  }
   try {
-    await ensureConversation();
-    if (conversation) {
-      conversation.setMicMuted(false);
-      setStatus("Listening…", "active");
+    conversation.setMicMuted(true);
+    if (typeof conversation.endSession === "function") {
+      await conversation.endSession();
     }
   } catch (error) {
-    setStatus(error.message || "Unable to start Kora.", "error");
+    // ignore disconnect errors
   }
+  active = false;
+  orb.classList.remove("active");
+  toggleBtn.textContent = "Start Kora";
+  setStatus("Kora idle", "idle");
 }
 
-function stopTalking() {
-  pressed = false;
-  if (conversation) {
-    conversation.setMicMuted(true);
-    if (ready) setStatus("Kora ready", "idle");
+toggleBtn.addEventListener("click", async () => {
+  if (!active) {
+    try {
+      await startConversation();
+    } catch (error) {
+      setStatus(error.message || "Unable to start Kora.", "error");
+    }
+  } else {
+    await stopConversation();
   }
-}
+});
 
-button.addEventListener("pointerdown", (event) => {
-  event.preventDefault();
-  if (!pressed) startTalking();
+orb.addEventListener("click", async () => {
+  if (!active) {
+    try {
+      await startConversation();
+    } catch (error) {
+      setStatus(error.message || "Unable to start Kora.", "error");
+    }
+  } else {
+    await stopConversation();
+  }
 });
-button.addEventListener("pointerup", (event) => {
-  event.preventDefault();
-  stopTalking();
-});
-button.addEventListener("pointerleave", stopTalking);
-button.addEventListener("pointercancel", stopTalking);
