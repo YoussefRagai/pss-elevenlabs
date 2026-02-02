@@ -9,7 +9,7 @@ const toolUrl =
   "https://pss-elevenlabs-production.up.railway.app/api/voice_tool";
 const toolSecret = process.env.ELEVENLABS_TOOL_SECRET || "";
 const voiceId = process.env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB";
-const agentLanguage = process.env.ELEVENLABS_AGENT_LANG || "auto";
+const agentLanguage = process.env.ELEVENLABS_AGENT_LANG || "en";
 const asrLanguage = process.env.ELEVENLABS_ASR_LANG || "auto";
 const ttsModel = process.env.ELEVENLABS_TTS_MODEL || "eleven_turbo_v2";
 const llmModel = process.env.ELEVENLABS_LLM_MODEL || "eleven-multilingual-v1";
