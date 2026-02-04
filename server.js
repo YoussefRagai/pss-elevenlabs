@@ -4014,6 +4014,16 @@ async function proxyChat(req, res) {
             team = resolvedTeam || candidate;
           }
         }
+        if (!team) {
+          const chanceMatch = String(lastQuestionRaw).match(
+            /chances?\\s+created(?:\\s+by|\\s+for)?\\s+(.+?)(?:\\s+in|\\s+season|$)/i
+          );
+          if (chanceMatch) {
+            const candidate = chanceMatch[1].trim();
+            const resolvedTeam = await findTeamMatch(env, candidate);
+            team = resolvedTeam || candidate;
+          }
+        }
         if (res.traceId) {
           logTrace(res.traceId, "chances_team", { team });
         }
