@@ -2231,7 +2231,7 @@ function validateColumnsInSql(query, schema) {
   if (!tableMatch) return true;
   const table = tableMatch[1];
   const tableInfo = findTable(schema, table);
-  if (!tableInfo) return true;
+  if (!tableInfo) return false;
   const columns = getTableColumns(schema, table);
   const selectMatch = query.match(/select\\s+(.+?)\\s+from/i);
   if (!selectMatch) return true;
@@ -3095,6 +3095,27 @@ async function proxyChat(req, res) {
     try {
       const memory = getMemory();
       const source = payload?.source || "chat";
+      if (Array.isArray(payload.messages) && source !== "voice") {
+        const lastUserIndex = getLastUserMessageIndex(payload.messages);
+        if (lastUserIndex >= 0) {
+          const rawText = payload.messages[lastUserIndex]?.content || "";
+          if (rawText) {
+            try {
+              const resolved = await resolveTranscriptEntities(rawText, env, memory);
+              if (resolved && resolved !== rawText) {
+                payload.messages[lastUserIndex] = {
+                  ...payload.messages[lastUserIndex],
+                  content: resolved,
+                };
+              }
+            } catch (error) {
+              if (process.env.DEBUG_TOOLS === "true") {
+                console.log("Entity resolver failed:", error.message || error);
+              }
+            }
+          }
+        }
+      }
       if (source === "voice" && Array.isArray(payload.messages)) {
         const lastUserIndex = getLastUserMessageIndex(payload.messages);
         if (lastUserIndex >= 0) {
