@@ -3938,29 +3938,6 @@ async function proxyChat(req, res) {
         return;
       }
 
-      const entity = extractEntityCandidate(lastQuestionRaw);
-      if (entity) {
-        setLastEntity(memory, entity);
-      }
-      if (pronounRef && lastEntity && !entity) {
-        setLastEntity(memory, lastEntity);
-      }
-      if (!skipAliasPrompt && entity && !memory.aliases?.[entity]) {
-        savePending({ kind: "alias", key: entity, original: lastQuestionRaw });
-        sendAssistantReply(
-          res,
-          `When you say \"${entity}\", is that a team, a player's name, or a nickname?`
-        );
-        return;
-      }
-      const directAnswer =
-        (await answerPassComparison(lastQuestion, env)) ||
-        (await answerGoalsQuestion(lastQuestion, env));
-      if (directAnswer) {
-        sendAssistantReply(res, directAnswer);
-        return;
-      }
-
       const chancesPrompt = parseChancesCreatedPrompt(lastQuestionRaw);
       if (chancesPrompt) {
         const params = extractParamsFromPrompt(lastQuestionRaw, memory);
@@ -3996,6 +3973,30 @@ async function proxyChat(req, res) {
         );
         return;
       }
+
+      const entity = extractEntityCandidate(lastQuestionRaw);
+      if (entity) {
+        setLastEntity(memory, entity);
+      }
+      if (pronounRef && lastEntity && !entity) {
+        setLastEntity(memory, lastEntity);
+      }
+      if (!skipAliasPrompt && entity && !memory.aliases?.[entity]) {
+        savePending({ kind: "alias", key: entity, original: lastQuestionRaw });
+        sendAssistantReply(
+          res,
+          `When you say \"${entity}\", is that a team, a player's name, or a nickname?`
+        );
+        return;
+      }
+      const directAnswer =
+        (await answerPassComparison(lastQuestion, env)) ||
+        (await answerGoalsQuestion(lastQuestion, env));
+      if (directAnswer) {
+        sendAssistantReply(res, directAnswer);
+        return;
+      }
+
       let messages = [mcpSystem, ...(payload.messages || [])];
       if (actionPlan?.summary) {
         messages = [
