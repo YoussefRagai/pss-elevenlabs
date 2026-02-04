@@ -2977,7 +2977,7 @@ async function handleVoiceTool(req, res) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "openrouter/free",
+            model: "openai/gpt-4o-mini",
             source: "voice",
             messages: [{ role: "user", content: query }],
           }),

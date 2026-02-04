@@ -14,7 +14,7 @@ const clearChatBtn = document.getElementById("clearChat");
 
 const SETTINGS_KEY = "openrouterSettings";
 const CHAT_KEY = "openrouterChat";
-const MODEL_ID = "openrouter/free";
+const MODEL_ID = "openai/gpt-4o-mini";
 
 const state = {
   messages: [],
