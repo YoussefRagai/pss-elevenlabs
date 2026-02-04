@@ -1316,7 +1316,15 @@ async function findTeamMatch(env, candidate) {
     .filter((t) => t.length >= 3);
   if (tokens.length) {
     const tokenClause = tokens
-      .map((t) => `name ilike '%${t.replace(/'/g, "''")}%'`)
+      .map((t) => {
+        const collapsed = t.replace(/(.)\\1+/g, "$1");
+        const safeToken = t.replace(/'/g, "''");
+        const safeCollapsed = collapsed.replace(/'/g, "''");
+        if (collapsed && collapsed !== t) {
+          return `(name ilike '%${safeToken}%' or name ilike '%${safeCollapsed}%')`;
+        }
+        return `name ilike '%${safeToken}%'`;
+      })
       .join(" and ");
     const strictQuery =
       "select name from teams " +
