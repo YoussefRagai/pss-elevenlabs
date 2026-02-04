@@ -4024,6 +4024,19 @@ async function proxyChat(req, res) {
             team = resolvedTeam || candidate;
           }
         }
+        if (!team) {
+          const cleaned = String(lastQuestionRaw)
+            .replace(/chances?\s+created|chance\s+created|key\s+passes?|show\s+me|give\s+me/gi, " ")
+            .replace(/\d{4}\s*[-/]\s*\d{4}/g, " ")
+            .replace(/\b(in|the|season|by|for)\b/gi, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (cleaned) {
+            const candidate = cleaned;
+            const resolvedTeam = await findTeamMatch(env, candidate);
+            team = resolvedTeam || candidate;
+          }
+        }
         if (res.traceId) {
           logTrace(res.traceId, "chances_team", { team });
         }
