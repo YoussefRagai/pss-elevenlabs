@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const url = require("url");
 const { randomUUID } = require("crypto");
 
 const PORT = process.env.PORT || 8080;
@@ -8,6 +9,8 @@ const ROOT = __dirname;
 const DEBUG_TOOLS = process.env.DEBUG_TOOLS === "true";
 const SCHEMA_TTL_MS = 5 * 60 * 1000;
 const SEMANTIC_PATH = path.join(ROOT, "semantic.json");
+const DOMAIN_MAP_PATH = path.join(ROOT, "football_domain_map.json");
+const GLOSSARY_PATH = path.join(ROOT, "semantic_glossary.json");
 const MEMORY_PATH = path.join(ROOT, "memory.json");
 const PENDING_PATH = path.join(ROOT, "pending.json");
 const voiceEventClients = new Set();
@@ -50,6 +53,8 @@ function loadSemanticHints() {
 
 async function getSemanticHints(env) {
   const semantic = loadSemanticHints() || {};
+  semantic.domain_map = loadJson(DOMAIN_MAP_PATH, null);
+  semantic.semantic_glossary = loadJson(GLOSSARY_PATH, null);
   try {
     const schema = await fetchSchema(env);
     const tables = schema.tables || [];
@@ -854,6 +859,12 @@ function sendAssistantReply(res, content, image) {
     if (analysis_text) {
       finalContent = `${content}\n\nAnalysis:\n${analysis_text}`;
     }
+  }
+  if (res?.traceId) {
+    logTrace(res.traceId, "response_sent", {
+      visualization: Boolean(cleanedImage?.image_base64),
+      rows: cleanedImage?.row_count || 0,
+    });
   }
   sendJson(res, 200, {
     choices: [
@@ -3041,6 +3052,7 @@ async function proxyChat(req, res) {
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
   const requestId = randomUUID();
+  res.traceId = requestId;
   logTrace(requestId, "request_start", { path: "/api/chat" });
 
   if (!apiKey) {

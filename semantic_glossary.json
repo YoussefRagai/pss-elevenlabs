@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "aliases": {
+    "shot": ["shots", "shoot", "shooting", "attempt"],
+    "shots_on_target": ["on target", "sot"],
+    "goal": ["goals", "scored", "netted"],
+    "pass": ["passes", "passing", "ball movement"],
+    "successful pass": ["completed pass", "success pass", "accurate pass"],
+    "block": ["blocks", "blocked shot"],
+    "tackle": ["tackles", "challenge"],
+    "interception": ["interceptions", "cut out"],
+    "foul": ["fouls", "foul committed"],
+    "card": ["cards", "yellow", "red", "booked"]
+  },
+  "team_name_variants": {
+    "al ahly": ["alahly", "al-ahly", "al ahly fc"],
+    "pyramids": ["pyramids fc", "pyramids club"]
+  },
+  "player_nickname_examples": {
+    "afsha": "Mohamed Magdy Mohamed Morsy"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "notes": "Domain mapping for football concepts to database requirements.",
+  "concepts": {
+    "shots": {
+      "description": "All shot attempts including penalties.",
+      "event_filter": "event_name in ('Shoot','Shoot Location','Penalty')",
+      "required_columns": ["x", "y", "event_name"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "shots_on_target": {
+      "description": "Shots on target.",
+      "event_filter": "event_name in ('Shoot','Shoot Location','Penalty') and result_name in ('On Target','Goal')",
+      "required_columns": ["x", "y", "result_name"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "goals": {
+      "description": "Goals scored.",
+      "event_filter": "event_name in ('Shoot','Shoot Location','Penalty') and result_name = 'Goal'",
+      "required_columns": ["x", "y", "result_name"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "passes_success": {
+      "description": "Successful passes.",
+      "event_filter": "event_name = 'Pass' and result_name = 'Success'",
+      "required_columns": ["x", "y", "end_x", "end_y", "result_name"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "passes_all": {
+      "description": "All passes regardless of outcome.",
+      "event_filter": "event_name = 'Pass'",
+      "required_columns": ["x", "y", "end_x", "end_y"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "blocks": {
+      "description": "Blocks (usually blocked shots).",
+      "event_filter": "result_name = 'Blocked'",
+      "required_columns": ["x", "y", "result_name"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "interceptions": {
+      "description": "Interceptions.",
+      "event_filter": "event_name = 'Interception'",
+      "required_columns": ["x", "y"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "tackles": {
+      "description": "Tackles.",
+      "event_filter": "event_name = 'Tackle'",
+      "required_columns": ["x", "y"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "fouls": {
+      "description": "Fouls committed.",
+      "event_filter": "event_name = 'Foul'",
+      "required_columns": ["x", "y"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "cards": {
+      "description": "Cards shown.",
+      "event_filter": "event_name in ('Yellow Card','Red Card')",
+      "required_columns": ["event_name"],
+      "preferred_table": "viz_match_events_with_match"
+    },
+    "conceded_goals": {
+      "description": "Goals conceded by a team (opponent goals when team is home/away).",
+      "logic": "select shots by opponent where team appears in home_team_name or away_team_name",
+      "required_columns": ["team_name", "home_team_name", "away_team_name"],
+      "preferred_table": "viz_match_events_with_match"
+    }
+  },
+  "visual_requirements": {
+    "shot_map": {
+      "required_columns": ["x", "y"],
+      "optional_columns": ["team_name", "player_name", "result_name", "event_name"]
+    },
+    "pass_map": {
+      "required_columns": ["x", "y", "end_x", "end_y"],
+      "optional_columns": ["team_name", "player_name", "result_name"]
+    },
+    "heatmap": {
+      "required_columns": ["x", "y"],
+      "optional_columns": ["team_name", "player_name", "event_name"]
+    },
+    "pass_network": {
+      "required_columns": ["player_name", "x", "y"],
+      "optional_columns": ["team_name"]
+    },
+    "pitch_plot": {
+      "required_columns": ["x", "y"],
+      "optional_columns": ["team_name", "player_name", "event_name", "result_name"]
+    },
+    "radar": {
+      "required_columns": [],
+      "optional_columns": ["metrics"]
+    },
+    "pizza": {
+      "required_columns": [],
+      "optional_columns": ["metrics"]
+    },
+    "bumpy": {
+      "required_columns": ["season_name", "player_name", "metric_value"],
+      "optional_columns": []
+    }
+  }
+}
