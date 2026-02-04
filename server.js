@@ -163,14 +163,14 @@ function buildActionPlan(prompt, memory) {
 
   if (plan.intent === "visual" && /match/i.test(cleaned)) {
     const hasSeason = /\d{4}\/\d{4}/.test(cleaned);
-    const hasMatchId = /match\s*id/i.test(cleaned);
+    const hasRandom = /random match|random/i.test(cleaned);
     const hasOpponent = detectMultiTeamPrompt(cleaned);
-    if (!hasMatchId && !hasSeason) {
+    if (!hasRandom && !hasSeason) {
       plan.clarification =
-        "Which match should I use? You can provide a season (e.g., 2023/2024), a match ID, or the opponent.";
-    } else if (!hasMatchId && !hasOpponent) {
+        "Which match should I use? You can provide a season (e.g., 2023/2024), a date, a round, or the opponent.";
+    } else if (!hasRandom && !hasOpponent) {
       plan.clarification =
-        "Which opponent or match ID should I use for the match request?";
+        "Which opponent, date, round, or month should I use for the match request?";
     }
   }
 
@@ -285,7 +285,7 @@ function buildOrchestrationContext(prompt, memory) {
   if (uncertainties.includes("missing_entity")) {
     clarification = "Which team or player should I use?";
   } else if (uncertainties.includes("missing_scope")) {
-    clarification = "Which season, opponent, or match should I use?";
+    clarification = "Which season, date, round, month, or opponent should I use?";
   }
 
   const needsSchema = uncertainties.length > 0 || slotsInfo.intent !== "general";
@@ -1707,9 +1707,10 @@ function parsePitchPlotTeamPrompt(text) {
 function needsScopeForVisual(text) {
   const normalized = normalizePrompt(text).toLowerCase();
   const visual = /(shot map|pass map|heatmap|pass network|pitch plot)/.test(normalized);
+  const hasRandom = /(random match|random)/.test(normalized);
   const hasSeason = /(20\d{2}\/20\d{2}|season|2023\/2024)/.test(normalized);
-  const hasMatch = /(match\s*id|vs\s|against\s|opponent|home|away)/.test(normalized);
-  if (visual && !hasSeason && !hasMatch) {
+  const hasMatchScope = /(vs\s|against\s|opponent|home|away|round|month|date)/.test(normalized);
+  if (visual && !hasSeason && !hasMatchScope && !hasRandom) {
     return true;
   }
   return false;
