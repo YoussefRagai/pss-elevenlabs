@@ -3964,6 +3964,9 @@ async function proxyChat(req, res) {
           sendAssistantReply(res, "Which season should I use for chances created? (e.g., 2022/2023)");
           return;
         }
+        if (res.traceId) {
+          logTrace(res.traceId, "chances_params", { team, season, effectiveSeason });
+        }
         const safeTeam = String(team).replace(/'/g, "''");
         const safeSeason = String(effectiveSeason).replace(/'/g, "''");
         const query =
