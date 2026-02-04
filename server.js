@@ -3951,16 +3951,21 @@ async function proxyChat(req, res) {
           findKnownTeam(lastQuestionRaw, memory) ||
           extractEntityCandidate(lastQuestionRaw);
         const season = params.season;
+        let effectiveSeason = season;
+        if (!effectiveSeason) {
+          const rawSeason = String(lastQuestionRaw).match(/(\d{4})\s*[-/]\s*(\d{4})/);
+          if (rawSeason) effectiveSeason = `${rawSeason[1]}/${rawSeason[2]}`;
+        }
         if (!team) {
           sendAssistantReply(res, "Which team should I use for chances created?");
           return;
         }
-        if (!season) {
+        if (!effectiveSeason) {
           sendAssistantReply(res, "Which season should I use for chances created? (e.g., 2022/2023)");
           return;
         }
         const safeTeam = String(team).replace(/'/g, "''");
-        const safeSeason = String(season).replace(/'/g, "''");
+        const safeSeason = String(effectiveSeason).replace(/'/g, "''");
         const query =
           "select count(*)::int as chances_created " +
           "from v_passes p join matches m on m.id = p.match_id " +
@@ -3973,7 +3978,7 @@ async function proxyChat(req, res) {
         const count = result.data?.[0]?.chances_created ?? 0;
         sendAssistantReply(
           res,
-          `${team} created ${count} chances in the ${season} season (key passes).`
+          `${team} created ${count} chances in the ${effectiveSeason} season (key passes).`
         );
         return;
       }
