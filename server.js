@@ -1309,16 +1309,32 @@ function extractCandidatePhrases(text) {
 async function findTeamMatch(env, candidate) {
   if (!candidate) return null;
   const safe = candidate.replace(/'/g, "''");
+  const tokens = candidate
+    .toLowerCase()
+    .replace(/[^a-z0-9\\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 3);
+  if (tokens.length) {
+    const tokenClause = tokens
+      .map((t) => `name ilike '%${t.replace(/'/g, "''")}%'`)
+      .join(" and ");
+    const strictQuery =
+      "select name from teams " +
+      `where ${tokenClause} ` +
+      "order by length(name) asc limit 1";
+    const strictResult = await runSqlRpc(strictQuery, env);
+    if (strictResult.data?.[0]?.name) return strictResult.data[0].name;
+  }
   const fuzzy = fuzzyLikePattern(candidate);
-  const query =
+  const fallbackQuery =
     "select name from teams " +
     "where name ilike '%" +
     safe +
     "%' or name ilike '%" +
     fuzzy +
     "%' " +
-    "order by length(name) desc limit 1";
-  const result = await runSqlRpc(query, env);
+    "order by length(name) asc limit 1";
+  const result = await runSqlRpc(fallbackQuery, env);
   return result.data?.[0]?.name || null;
 }
 
