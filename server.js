@@ -507,6 +507,10 @@ function extractParamsFromPrompt(prompt, memory) {
   if (lastMatch) params.last_n = Number(lastMatch[1]);
   const seasonMatch = normalized.match(/(\\d{4}\/\\d{4})/);
   if (seasonMatch) params.season = seasonMatch[1];
+  if (!params.season) {
+    const seasonAlt = normalized.match(/(\\d{4})\\s*[-/]\\s*(\\d{4})/);
+    if (seasonAlt) params.season = `${seasonAlt[1]}/${seasonAlt[2]}`;
+  }
   const compareMatch =
     normalized.match(/(?:between|comparing) (.+?) and (.+?)$/i) ||
     normalized.match(/(.+?)\\s+(?:vs\\.?|versus|against)\\s+(.+)$/i);
