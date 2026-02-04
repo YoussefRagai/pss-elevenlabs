@@ -541,6 +541,38 @@ function parseChancesCreatedPrompt(text) {
   return { type: "chances_created" };
 }
 
+function wantsChancesMap(text) {
+  const normalized = normalizePrompt(text).toLowerCase();
+  if (!/(chances created|chance created|key passes|key pass)/.test(normalized)) return false;
+  return /(pitch map|pitch plot|pass map|map|heatmap|visual|chart|plot)/i.test(normalized);
+}
+
+function isChancesMapFollowup(text, memory) {
+  const normalized = normalizePrompt(text).toLowerCase();
+  if (!/(pitch map|pitch plot|pass map|map|heatmap|visual|chart|plot)/i.test(normalized)) return false;
+  if (!/(them|those|chances|key passes)/i.test(normalized)) return false;
+  return Boolean(getLastChances(memory));
+}
+
+function buildChancesPassMapQuery(team, season) {
+  const safeTeam = String(team || "").replace(/'/g, "''");
+  const altTeam = safeTeam.replace(/(.)\1+/g, "$1");
+  const safeSeason = String(season || "").replace(/'/g, "''");
+  return (
+    "select p.x, p.y, p.end_x, p.end_y, p.team_name " +
+    "from v_passes p join matches m on m.id = p.match_id " +
+    "where p.is_key_pass = true " +
+    "and (p.team_name ilike '%" +
+    safeTeam +
+    "%' " +
+    (altTeam && altTeam !== safeTeam ? `or p.team_name ilike '%${altTeam}%' ` : "") +
+    ") " +
+    "and m.season_name = '" +
+    safeSeason +
+    "'"
+  );
+}
+
 function buildQueryTemplate(query, params) {
   if (!query) return null;
   let template = query;
@@ -773,6 +805,22 @@ function setLastTeams(memory, teamA, teamB) {
     team_b: teamB,
   };
   saveMemory(updated);
+}
+
+function rememberLastChances(memory, payload) {
+  if (!payload?.team || !payload?.season) return;
+  const updated = { ...(memory || {}) };
+  updated.scopes = updated.scopes || {};
+  updated.scopes.last_chances = {
+    team: payload.team,
+    season: payload.season,
+    saved_at: new Date().toISOString(),
+  };
+  saveMemory(updated);
+}
+
+function getLastChances(memory) {
+  return memory?.scopes?.last_chances || null;
 }
 
 function getPending() {
@@ -3587,6 +3635,69 @@ async function proxyChat(req, res) {
         }
       }
 
+      const chancesMapFollowup = isChancesMapFollowup(lastQuestionRaw, memory);
+      if (wantsChancesMap(lastQuestionRaw) || chancesMapFollowup) {
+        const params = extractParamsFromPrompt(lastQuestionRaw, memory);
+        let team =
+          params.team ||
+          params.team_a ||
+          findKnownTeam(lastQuestionRaw, memory) ||
+          extractEntityCandidate(lastQuestionRaw);
+        if (team) {
+          const matchedTeam = await findTeamMatch(env, String(team));
+          if (matchedTeam) team = matchedTeam;
+        }
+        if (!team) {
+          const byMatch = String(lastQuestionRaw).match(/by\s+(.+?)(?:\s+in|\s+for|$)/i);
+          if (byMatch) {
+            const candidate = byMatch[1].trim();
+            const resolvedTeam = await findTeamMatch(env, candidate);
+            team = resolvedTeam || candidate;
+          }
+        }
+        if (!team) {
+          const chanceMatch = String(lastQuestionRaw).match(
+            /chances?\s+created(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i
+          );
+          if (chanceMatch) {
+            const candidate = chanceMatch[1].trim();
+            const resolvedTeam = await findTeamMatch(env, candidate);
+            team = resolvedTeam || candidate;
+          }
+        }
+        const lastChances = getLastChances(memory);
+        if (!team && lastChances?.team) team = lastChances.team;
+        let season = params.season;
+        if (!season) {
+          const rawSeason = String(lastQuestionRaw).match(/(\d{4})\s*[-/]\s*(\d{4})/);
+          if (rawSeason) season = `${rawSeason[1]}/${rawSeason[2]}`;
+        }
+        if (!season && lastChances?.season) season = lastChances.season;
+        if (!team) {
+          sendAssistantReply(res, "Which team should I use for the chances map?");
+          return;
+        }
+        if (!season) {
+          sendAssistantReply(res, "Which season should I use for the chances map? (e.g., 2023/2024)");
+          return;
+        }
+        const query = buildChancesPassMapQuery(team, season);
+        const image = await renderMplSoccerAndLearn(
+          {
+            chart_type: "pass_map",
+            query,
+            orientation: parseOrientation(lastQuestionRaw),
+            half: parseHalfPitch(lastQuestionRaw)
+          },
+          env,
+          lastQuestionRaw,
+          memory
+        );
+        rememberLastChances(memory, { team, season });
+        sendAssistantReply(res, `Chances created by ${team} in ${season}.`, image);
+        return;
+      }
+
       // If we resolved a pending clarification, continue with resolved question and skip new alias probing.
       const skipAliasPrompt = Boolean(pendingResult?.resolved) || hasKnownAlias(lastQuestionRaw, memory);
       const lastEntity = getLastEntity(memory);
@@ -4072,6 +4183,7 @@ async function proxyChat(req, res) {
           "' and p.is_key_pass = true";
         const result = await runSqlRpc(query, env);
         const count = result.data?.[0]?.chances_created ?? 0;
+        rememberLastChances(memory, { team, season: effectiveSeason });
         sendAssistantReply(
           res,
           `${team} created ${count} chances in the ${effectiveSeason} season (key passes).`
