@@ -3999,6 +3999,10 @@ async function proxyChat(req, res) {
           params.team_a ||
           findKnownTeam(lastQuestionRaw, memory) ||
           extractEntityCandidate(lastQuestionRaw);
+        if (team) {
+          const matchedTeam = await findTeamMatch(env, String(team));
+          if (matchedTeam) team = matchedTeam;
+        }
         if (!team) {
           const byMatch = String(lastQuestionRaw).match(/by\\s+(.+?)(?:\\s+in|\\s+for|$)/i);
           if (byMatch) {
@@ -4025,13 +4029,16 @@ async function proxyChat(req, res) {
           logTrace(res.traceId, "chances_params", { team, season, effectiveSeason });
         }
         const safeTeam = String(team).replace(/'/g, "''");
+        const altTeam = safeTeam.replace(/(.)\\1+/g, "$1");
         const safeSeason = String(effectiveSeason).replace(/'/g, "''");
         const query =
           "select count(*)::int as chances_created " +
           "from v_passes p join matches m on m.id = p.match_id " +
-          "where p.team_name ilike '%" +
+          "where (p.team_name ilike '%" +
           safeTeam +
-          "%' and m.season_name = '" +
+          "%' " +
+          (altTeam && altTeam !== safeTeam ? `or p.team_name ilike '%${altTeam}%' ` : "") +
+          ") and m.season_name = '" +
           safeSeason +
           "' and p.is_key_pass = true";
         const result = await runSqlRpc(query, env);
