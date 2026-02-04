@@ -174,6 +174,198 @@ function buildActionPlan(prompt, memory) {
   return plan;
 }
 
+function findKnownPlayer(text, memory) {
+  const aliases = memory.aliases || {};
+  for (const [key, value] of Object.entries(aliases)) {
+    if (value.type !== "player_name" && value.type !== "player_nickname") continue;
+    const reKey = buildAliasRegex(key);
+    if (reKey.test(text)) return value.value || key;
+    const reValue = buildAliasRegex(value.value || "");
+    if (reValue.test(text)) return value.value || key;
+  }
+  return null;
+}
+
+function detectChartType(prompt) {
+  const normalized = normalizePrompt(prompt).toLowerCase();
+  if (/(shot map|shotmap|shots map)/.test(normalized)) return "shot_map";
+  if (/(pass map|passmap)/.test(normalized)) return "pass_map";
+  if (/heatmap/.test(normalized)) return "heatmap";
+  if (/pass network/.test(normalized)) return "pass_network";
+  if (/pitch plot/.test(normalized)) return "pitch_plot";
+  if (/radar/.test(normalized)) return "radar";
+  if (/pizza/.test(normalized)) return "pizza";
+  if (/bumpy/.test(normalized)) return "bumpy";
+  if (/shot/.test(normalized)) return "shot_map";
+  if (/pass/.test(normalized)) return "pass_map";
+  return null;
+}
+
+function buildIntentSlots(prompt, memory) {
+  const cleaned = stripGreetingPreamble(prompt || "");
+  const params = extractParamsFromPrompt(cleaned, memory);
+  const slots = {
+    team: params.team || null,
+    team_a: params.team_a || null,
+    team_b: params.team_b || null,
+    season: params.season || null,
+    last_n: params.last_n ?? null,
+    player: null,
+    nickname: null,
+  };
+  const conf = {
+    team: 0,
+    team_a: 0,
+    team_b: 0,
+    season: 0,
+    last_n: 0,
+    player: 0,
+    nickname: 0,
+  };
+
+  if (slots.team) conf.team = 0.7;
+  if (slots.team_a) conf.team_a = 0.8;
+  if (slots.team_b) conf.team_b = 0.8;
+  if (slots.season) conf.season = 0.9;
+  if (slots.last_n != null) conf.last_n = 0.9;
+
+  const knownPlayer = findKnownPlayer(cleaned, memory);
+  if (knownPlayer) {
+    slots.player = knownPlayer;
+    conf.player = 0.7;
+  }
+
+  const chartType = detectChartType(cleaned);
+  const intent = isVisualizationPrompt(cleaned)
+    ? "visual"
+    : isDatabaseIntent(cleaned)
+    ? "database"
+    : "general";
+
+  return { intent, chart_type: chartType, slots, confidence: conf };
+}
+
+function buildChartPlan(prompt, intentSlots) {
+  if (!intentSlots || intentSlots.intent !== "visual") return null;
+  const chartType = intentSlots.chart_type || "shot_map";
+  const plan = {
+    chart_type: chartType,
+    orientation: parseOrientation(prompt),
+    half: parseHalfPitch(prompt),
+    series_split_field: detectMultiTeamPrompt(prompt || "") ? "team_name" : null,
+    required_fields: ["x", "y"],
+  };
+  if (chartType === "pass_map") {
+    plan.required_fields = ["x", "y", "end_x", "end_y"];
+  }
+  return plan;
+}
+
+function buildOrchestrationContext(prompt, memory) {
+  const slotsInfo = buildIntentSlots(prompt, memory);
+  const chartPlan = buildChartPlan(prompt, slotsInfo);
+  const uncertainties = [];
+  if (slotsInfo.intent === "visual") {
+    const hasEntity =
+      slotsInfo.slots.team ||
+      (slotsInfo.slots.team_a && slotsInfo.slots.team_b) ||
+      slotsInfo.slots.player;
+    if (!hasEntity) {
+      uncertainties.push("missing_entity");
+    }
+    if (needsScopeForVisual(prompt)) {
+      uncertainties.push("missing_scope");
+    }
+  }
+
+  let clarification = null;
+  if (uncertainties.includes("missing_entity")) {
+    clarification = "Which team or player should I use?";
+  } else if (uncertainties.includes("missing_scope")) {
+    clarification = "Which season, opponent, or match should I use?";
+  }
+
+  const needsSchema = uncertainties.length > 0 || slotsInfo.intent !== "general";
+  return {
+    id: randomUUID(),
+    state: "UNDERSTAND",
+    intent: slotsInfo.intent,
+    chart_plan: chartPlan,
+    slots: slotsInfo.slots,
+    confidence: slotsInfo.confidence,
+    uncertainties,
+    clarification,
+    needs_schema: needsSchema,
+    steps: ["UNDERSTAND", "PLAN", "EXECUTE", "VERIFY", "RESPOND"],
+  };
+}
+
+function applyChartPlan(args, chartPlan) {
+  if (!chartPlan) return args;
+  const next = { ...args };
+  if (!next.chart_type) next.chart_type = chartPlan.chart_type;
+  if (chartPlan.chart_type) next.chart_type = chartPlan.chart_type;
+  if (!next.orientation && chartPlan.orientation) next.orientation = chartPlan.orientation;
+  if (next.half == null && chartPlan.half != null) next.half = chartPlan.half;
+  if (!next.series_split_field && chartPlan.series_split_field) {
+    next.series_split_field = chartPlan.series_split_field;
+  }
+  return next;
+}
+
+function repairQueryForEmptyResults(query, slots) {
+  if (!query || !slots?.team) return null;
+  const safe = String(slots.team).replace(/'/g, "''");
+  const fuzzy = fuzzyLikePattern(slots.team);
+  let repaired = query;
+  const exact = new RegExp(escapeRegex(safe), "gi");
+  if (exact.test(repaired)) {
+    repaired = repaired.replace(exact, fuzzy);
+  }
+  if (repaired !== query) {
+    return repaired;
+  }
+  return null;
+}
+
+async function verifyAndRepairSqlResult(query, result, slots, env) {
+  if (!Array.isArray(result?.data) || result.data.length > 0) return result;
+  const repaired = repairQueryForEmptyResults(query, slots);
+  if (repaired && repaired !== query) {
+    return runSqlRpc(repaired, env);
+  }
+  return result;
+}
+
+async function verifyAndRepairRenderResult(args, toolResult, ctx, env) {
+  if (!args?.query) return { toolResult, args };
+  const lastN = ctx?.slots?.last_n;
+  const expectedMax =
+    lastN && detectMultiTeamPrompt(ctx?.raw_prompt || "")
+      ? lastN * 2
+      : lastN || null;
+
+  if (toolResult?.row_count === 0) {
+    const repaired = repairQueryForEmptyResults(args.query, ctx?.slots || {});
+    if (repaired && repaired !== args.query) {
+      const nextArgs = { ...args, query: repaired };
+      const retried = await renderMplSoccer(nextArgs, env);
+      return { toolResult: retried, args: nextArgs };
+    }
+  }
+
+  if (expectedMax && toolResult?.row_count && toolResult.row_count > expectedMax * 1.2) {
+    if (!/\\blimit\\b/i.test(args.query)) {
+      const limited = `${args.query} limit ${expectedMax}`;
+      const nextArgs = { ...args, query: limited };
+      const retried = await renderMplSoccer(nextArgs, env);
+      return { toolResult: retried, args: nextArgs };
+    }
+  }
+
+  return { toolResult, args };
+}
+
 function isLearnedTemplateCompatible(prompt, template, memory) {
   if (!template) return false;
   if (!detectMultiTeamPrompt(prompt || "")) return true;
@@ -2872,6 +3064,16 @@ async function proxyChat(req, res) {
         setLastTeams(memory, baseParams.team_a, baseParams.team_b);
       }
 
+      const orchestration = buildOrchestrationContext(lastQuestionRaw, memory);
+      orchestration.state = "PLAN";
+      orchestration.raw_prompt = lastQuestionRaw;
+      if (orchestration?.clarification) {
+        sendAssistantReply(res, orchestration.clarification);
+        return;
+      }
+      if (orchestration.needs_schema) {
+        await fetchSchema(env);
+      }
       const actionPlan = buildActionPlan(lastQuestionRaw, memory);
       if (actionPlan?.clarification) {
         sendAssistantReply(res, actionPlan.clarification);
@@ -3660,7 +3862,27 @@ async function proxyChat(req, res) {
           },
         ];
       }
-      const forceToolName = actionPlan?.forceTool || null;
+      if (orchestration) {
+        messages = [
+          ...messages,
+          {
+            role: "system",
+            content: `ORCHESTRATION_STATE: ${JSON.stringify({
+              id: orchestration.id,
+              intent: orchestration.intent,
+              slots: orchestration.slots,
+              chart_plan: orchestration.chart_plan,
+              uncertainties: orchestration.uncertainties,
+            })}`,
+          },
+        ];
+      }
+      const forceToolName =
+        orchestration?.intent === "visual"
+          ? "render_mplsoccer"
+          : orchestration?.intent === "database"
+          ? "run_sql_rpc"
+          : actionPlan?.forceTool || null;
       const forceVisualizationTool = forceToolName === "render_mplsoccer";
 
       let response = await callOpenRouter(
@@ -3712,7 +3934,14 @@ async function proxyChat(req, res) {
             toolResult = await executeSqlQuery(args?.query || "", env, schema);
           } else if (call.function?.name === "run_sql_rpc") {
             toolResult = await runSqlRpc(args?.query || "", env);
+            toolResult = await verifyAndRepairSqlResult(
+              args?.query || "",
+              toolResult,
+              orchestration?.slots || {},
+              env
+            );
           } else if (call.function?.name === "render_mplsoccer") {
+            args = applyChartPlan(args, orchestration?.chart_plan);
             if (!args.template && !args.query) {
               const shotCompare = parseShotMapComparePrompt(lastQuestion);
               const heatCompare = parseHeatmapComparePrompt(lastQuestion);
@@ -3767,6 +3996,14 @@ async function proxyChat(req, res) {
             }
             applyVisualOverrides(args, lastQuestionRaw);
             toolResult = await renderMplSoccer(args, env);
+            const verification = await verifyAndRepairRenderResult(
+              args,
+              toolResult,
+              orchestration,
+              env
+            );
+            toolResult = verification.toolResult;
+            args = verification.args;
             if (toolResult?.error) {
               sendAssistantReply(res, `Visualization failed: ${toolResult.error}`);
               return;
