@@ -4011,7 +4011,7 @@ async function proxyChat(req, res) {
           if (byMatch) {
             const candidate = byMatch[1].trim();
             const resolvedTeam = await findTeamMatch(env, candidate);
-            if (resolvedTeam) team = resolvedTeam;
+            team = resolvedTeam || candidate;
           }
         }
         if (res.traceId) {
