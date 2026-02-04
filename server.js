@@ -3999,6 +3999,9 @@ async function proxyChat(req, res) {
           params.team_a ||
           findKnownTeam(lastQuestionRaw, memory) ||
           extractEntityCandidate(lastQuestionRaw);
+        if (res.traceId) {
+          logTrace(res.traceId, "chances_raw", { team, season: params.season });
+        }
         if (team) {
           const matchedTeam = await findTeamMatch(env, String(team));
           if (matchedTeam) team = matchedTeam;
@@ -4010,6 +4013,9 @@ async function proxyChat(req, res) {
             const resolvedTeam = await findTeamMatch(env, candidate);
             if (resolvedTeam) team = resolvedTeam;
           }
+        }
+        if (res.traceId) {
+          logTrace(res.traceId, "chances_team", { team });
         }
         const season = params.season;
         let effectiveSeason = season;
