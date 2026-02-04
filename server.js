@@ -3994,11 +3994,19 @@ async function proxyChat(req, res) {
       const chancesPrompt = parseChancesCreatedPrompt(lastQuestionRaw);
       if (chancesPrompt) {
         const params = extractParamsFromPrompt(lastQuestionRaw, memory);
-        const team =
+        let team =
           params.team ||
           params.team_a ||
           findKnownTeam(lastQuestionRaw, memory) ||
           extractEntityCandidate(lastQuestionRaw);
+        if (!team) {
+          const byMatch = String(lastQuestionRaw).match(/by\\s+(.+?)(?:\\s+in|\\s+for|$)/i);
+          if (byMatch) {
+            const candidate = byMatch[1].trim();
+            const resolvedTeam = await findTeamMatch(env, candidate);
+            if (resolvedTeam) team = resolvedTeam;
+          }
+        }
         const season = params.season;
         let effectiveSeason = season;
         if (!effectiveSeason) {
