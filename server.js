@@ -11,6 +11,9 @@ const SEMANTIC_PATH = path.join(ROOT, "semantic.json");
 const MEMORY_PATH = path.join(ROOT, "memory.json");
 const PENDING_PATH = path.join(ROOT, "pending.json");
 const voiceEventClients = new Set();
+const TRACE_PATH = path.join(ROOT, "trace.log");
+const traceStore = new Map();
+const TRACE_LIMIT = 200;
 
 const schemaCache = {
   data: null,
@@ -795,6 +798,42 @@ function handleVoiceEvents(req, res) {
   req.on("close", () => {
     voiceEventClients.delete(res);
   });
+}
+
+function logTrace(id, stage, details) {
+  if (!id) return;
+  const entry = {
+    ts: new Date().toISOString(),
+    stage,
+    ...(details ? { details } : {}),
+  };
+  const existing = traceStore.get(id) || [];
+  existing.push(entry);
+  if (existing.length > TRACE_LIMIT) {
+    existing.splice(0, existing.length - TRACE_LIMIT);
+  }
+  traceStore.set(id, existing);
+  try {
+    fs.appendFileSync(TRACE_PATH, `${id} ${entry.ts} ${stage} ${JSON.stringify(details || {})}\n`);
+  } catch (error) {
+    // ignore trace logging failures
+  }
+}
+
+function handleTraceRequest(req, res) {
+  const parsed = url.parse(req.url, true);
+  const id = parsed.pathname?.split("/api/trace/")[1];
+  if (id) {
+    sendJson(res, 200, { id, events: traceStore.get(id) || [] });
+    return;
+  }
+  const limit = Number(parsed.query?.limit) || 20;
+  const items = [];
+  for (const [traceId, events] of traceStore.entries()) {
+    items.push({ id: traceId, last: events[events.length - 1] || null });
+  }
+  items.sort((a, b) => (a.last?.ts || "").localeCompare(b.last?.ts || ""));
+  sendJson(res, 200, { traces: items.slice(-limit) });
 }
 
 function sendJson(res, status, payload) {
@@ -2905,6 +2944,7 @@ async function handleVoiceTool(req, res) {
     const jobId = randomUUID();
     broadcastVoiceEvent({ type: "voice_start", id: jobId, query });
     const startedAt = Date.now();
+    logTrace(jobId, "voice_start", { query });
     console.log(`[voice_tool] start id=${jobId} len=${query.length}`);
 
     try {
@@ -2926,6 +2966,7 @@ async function handleVoiceTool(req, res) {
       if (!response.ok) {
         const detail = data?.error || data?.message || response.statusText || "Tool request failed.";
         console.log(`[voice_tool] error id=${jobId} status=${response.status} ms=${elapsed} detail=${detail}`);
+        logTrace(jobId, "voice_error", { status: response.status, detail, elapsed_ms: elapsed });
         const fallbackText = `I ran into an issue fetching the answer. ${detail}`;
         broadcastVoiceEvent({
           type: "voice_error",
@@ -2941,6 +2982,10 @@ async function handleVoiceTool(req, res) {
         text += " A visualization was generated in the dashboard.";
       }
       console.log(`[voice_tool] success id=${jobId} ms=${elapsed}`);
+      logTrace(jobId, "voice_success", {
+        elapsed_ms: elapsed,
+        has_image: Boolean(data?.image?.image_base64),
+      });
       broadcastVoiceEvent({
         type: "voice_result",
         id: jobId,
@@ -2952,6 +2997,7 @@ async function handleVoiceTool(req, res) {
       const elapsed = Date.now() - startedAt;
       const detail = error.message || "Voice tool failed.";
       console.log(`[voice_tool] exception id=${jobId} ms=${elapsed} detail=${detail}`);
+      logTrace(jobId, "voice_exception", { detail, elapsed_ms: elapsed });
       broadcastVoiceEvent({ type: "voice_error", id: jobId, error: detail });
       sendJson(res, 200, { result: `I ran into a tool error. ${detail}` });
     }
@@ -2993,13 +3039,17 @@ async function proxyChat(req, res) {
   const apiKey = env.OPENROUTER_API_KEY;
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  const requestId = randomUUID();
+  logTrace(requestId, "request_start", { path: "/api/chat" });
 
   if (!apiKey) {
     sendJson(res, 500, { error: "Missing OPENROUTER_API_KEY in .env" });
+    logTrace(requestId, "request_error", { reason: "missing_openrouter_key" });
     return;
   }
   if (!supabaseUrl || !serviceKey) {
     sendJson(res, 500, { error: "Missing Supabase credentials in .env" });
+    logTrace(requestId, "request_error", { reason: "missing_supabase_credentials" });
     return;
   }
 
@@ -3014,6 +3064,7 @@ async function proxyChat(req, res) {
       payload = JSON.parse(body || "{}");
     } catch (error) {
       sendJson(res, 400, { error: "Invalid JSON" });
+      logTrace(requestId, "request_error", { reason: "invalid_json" });
       return;
     }
 
@@ -3048,10 +3099,12 @@ async function proxyChat(req, res) {
           "SQL-first mode enforced: for any database question, use run_sql_rpc to answer. For visualization requests, use render_mplsoccer with either a SQL template (template + template_vars) or a direct SQL query (query). Prefer templates when available. IMPORTANT: for pitch charts (shot_map/pass_map/heatmap/pitch_plot), do not call render_mplsoccer without a query or template. For pass_map, always include end_x and end_y so arrows can be drawn; if missing, consult schema and add them. If comparing two teams/players, ensure the result includes a label column (team_name/player_name) and pass series_split_field so each entity is a separate series and color. Start by calling get_semantic_hints to learn domain rules and table meanings, then use get_schema to confirm table/column names, then run_sql_rpc or render_mplsoccer for the final answer. If you have any doubt about a column or table, call get_schema before querying. Only use non-SQL tools if the question is NOT about the database. Use ILIKE for name matches. Prefer viz_match_events or viz_match_events_with_match for event-based stats (goals, shots, cards, assists). Repair rules: if you reference end_x/end_y and the query fails, drop those columns and proceed with x/y only. If a query may be large, add a LIMIT (e.g., 5000) to avoid timeouts. Use shot synonyms: treat shots as event_name in ('Shoot','Shoot Location','Penalty'). For shots conceded by a team, select shots by the opponent in matches where the team appears as home or away (team_name != target AND (home_team_name ILIKE target OR away_team_name ILIKE target)), or use templates shots_conceded_by_team / shots_conceded_last_n_matches. For 'last N matches', use matches.date_time or viz_match_events_with_match.date_time ordered DESC with LIMIT N, then filter events by those match_ids. If you generate a correct SQL query for a new visualization, call render_mplsoccer with the query; the system will store it as a learned template for future exact matches. Strip trailing semicolons from SQL.",
       };
       const lastQuestionRaw = getLastUserMessage(payload.messages || []);
+      logTrace(requestId, "prompt_received", { source, prompt: lastQuestionRaw });
       const cleanedQuestion = stripGreetingPreamble(lastQuestionRaw);
       const pendingResult = handlePendingClarification(cleanedQuestion);
       if (pendingResult?.question) {
         sendAssistantReply(res, pendingResult.question);
+        logTrace(requestId, "clarification_sent", { question: pendingResult.question });
         return;
       }
       const resolvedQuestion = pendingResult?.resolved
@@ -3066,17 +3119,21 @@ async function proxyChat(req, res) {
 
       const orchestration = buildOrchestrationContext(lastQuestionRaw, memory);
       orchestration.state = "PLAN";
+      orchestration.id = requestId;
       orchestration.raw_prompt = lastQuestionRaw;
       if (orchestration?.clarification) {
         sendAssistantReply(res, orchestration.clarification);
+        logTrace(requestId, "clarification_sent", { question: orchestration.clarification });
         return;
       }
       if (orchestration.needs_schema) {
         await fetchSchema(env);
+        logTrace(requestId, "schema_prefetched");
       }
       const actionPlan = buildActionPlan(lastQuestionRaw, memory);
       if (actionPlan?.clarification) {
         sendAssistantReply(res, actionPlan.clarification);
+        logTrace(requestId, "clarification_sent", { question: actionPlan.clarification });
         return;
       }
 
@@ -3899,6 +3956,7 @@ async function proxyChat(req, res) {
         },
         apiKey
       );
+      logTrace(requestId, "llm_response");
 
       let imageAttachment = null;
       let visualizationHandled = false;
@@ -3908,6 +3966,7 @@ async function proxyChat(req, res) {
         messages = [...messages, response.choices[0].message];
 
         const schema = await fetchSchema(env);
+        logTrace(requestId, "schema_loaded");
 
         for (const call of toolCalls) {
           let toolResult = { error: "Unsupported tool." };
@@ -3921,17 +3980,23 @@ async function proxyChat(req, res) {
           if (call.function?.name === "get_schema") {
             if (DEBUG_TOOLS) console.log("[tools] get_schema", args?.table || "all");
             toolResult = getSchemaResult(args, schema);
+            logTrace(requestId, "tool_get_schema", { table: args?.table || "all" });
           } else if (call.function?.name === "get_semantic_hints") {
             if (DEBUG_TOOLS) console.log("[tools] get_semantic_hints");
             toolResult = await getSemanticHints(env);
+            logTrace(requestId, "tool_get_semantic_hints");
           } else if (call.function?.name === "query_public_table") {
             toolResult = await queryPublicTable(args, env, schema);
+            logTrace(requestId, "tool_query_public_table", { table: args?.table });
           } else if (call.function?.name === "count_public_table") {
             toolResult = await countPublicTable(args, env, schema);
+            logTrace(requestId, "tool_count_public_table", { table: args?.table });
           } else if (call.function?.name === "aggregate_public_table") {
             toolResult = await aggregatePublicTable(args, env, schema);
+            logTrace(requestId, "tool_aggregate_public_table", { table: args?.table });
           } else if (call.function?.name === "run_sql") {
             toolResult = await executeSqlQuery(args?.query || "", env, schema);
+            logTrace(requestId, "tool_run_sql");
           } else if (call.function?.name === "run_sql_rpc") {
             toolResult = await runSqlRpc(args?.query || "", env);
             toolResult = await verifyAndRepairSqlResult(
@@ -3940,6 +4005,7 @@ async function proxyChat(req, res) {
               orchestration?.slots || {},
               env
             );
+            logTrace(requestId, "tool_run_sql_rpc", { rows: toolResult?.data?.length || 0 });
           } else if (call.function?.name === "render_mplsoccer") {
             args = applyChartPlan(args, orchestration?.chart_plan);
             if (!args.template && !args.query) {
@@ -4004,8 +4070,13 @@ async function proxyChat(req, res) {
             );
             toolResult = verification.toolResult;
             args = verification.args;
+            logTrace(requestId, "tool_render_mplsoccer", {
+              chart_type: args.chart_type,
+              rows: toolResult?.row_count || 0,
+            });
             if (toolResult?.error) {
               sendAssistantReply(res, `Visualization failed: ${toolResult.error}`);
+              logTrace(requestId, "render_failed", { error: toolResult.error });
               return;
             }
             if (toolResult?.image_base64) {
@@ -4035,6 +4106,10 @@ async function proxyChat(req, res) {
             `Visualization ready. ${rowsText} See the image above.`,
             imageAttachment
           );
+          logTrace(requestId, "response_sent", {
+            visualization: true,
+            rows: imageAttachment?.row_count || 0,
+          });
           return;
         }
 
@@ -4074,8 +4149,12 @@ async function proxyChat(req, res) {
 
       const finalResponse = imageAttachment ? { ...response, image: imageAttachment } : response;
       sendJson(res, 200, finalResponse);
+      logTrace(requestId, "response_sent", {
+        visualization: Boolean(imageAttachment),
+      });
     } catch (error) {
       sendJson(res, 500, { error: error.message || "Proxy error" });
+      logTrace(requestId, "request_error", { reason: error.message || "proxy_error" });
     }
   });
 }
@@ -4108,6 +4187,15 @@ const server = http.createServer((req, res) => {
       return;
     }
     handleVoiceEvents(req, res);
+    return;
+  }
+
+  if (req.url.startsWith("/api/trace")) {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    handleTraceRequest(req, res);
     return;
   }
 
