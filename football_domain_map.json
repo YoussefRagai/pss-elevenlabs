@@ -2,6 +2,14 @@
   "version": "1.0",
   "notes": "Domain mapping for football concepts to database requirements.",
   "concepts": {
+    "chances_created": {
+      "description": "Chances created (key passes).",
+      "event_filter": "is_key_pass = true",
+      "required_columns": ["team_name", "match_id", "is_key_pass"],
+      "preferred_table": "v_passes",
+      "join_tables": ["matches"],
+      "join_keys": ["match_id = matches.id"]
+    },
     "shots": {
       "description": "All shot attempts including penalties.",
       "event_filter": "event_name in ('Shoot','Shoot Location','Penalty')",

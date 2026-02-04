@@ -5,6 +5,7 @@
     "shots_on_target": ["on target", "sot"],
     "goal": ["goals", "scored", "netted"],
     "pass": ["passes", "passing", "ball movement"],
+    "chance created": ["chances created", "chances", "key passes", "key pass"],
     "successful pass": ["completed pass", "success pass", "accurate pass"],
     "block": ["blocks", "blocked shot"],
     "tackle": ["tackles", "challenge"],

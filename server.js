@@ -531,6 +531,12 @@ function parseBlockedShotsPlayersPrompt(text) {
   return { type: "players_blocked_shots" };
 }
 
+function parseChancesCreatedPrompt(text) {
+  const normalized = normalizePrompt(text).toLowerCase();
+  if (!/(chances created|chance created|key passes|key pass)/.test(normalized)) return null;
+  return { type: "chances_created" };
+}
+
 function buildQueryTemplate(query, params) {
   if (!query) return null;
   let template = query;
@@ -3952,6 +3958,42 @@ async function proxyChat(req, res) {
         (await answerGoalsQuestion(lastQuestion, env));
       if (directAnswer) {
         sendAssistantReply(res, directAnswer);
+        return;
+      }
+
+      const chancesPrompt = parseChancesCreatedPrompt(lastQuestionRaw);
+      if (chancesPrompt) {
+        const params = extractParamsFromPrompt(lastQuestionRaw, memory);
+        const team =
+          params.team ||
+          params.team_a ||
+          findKnownTeam(lastQuestionRaw, memory) ||
+          extractEntityCandidate(lastQuestionRaw);
+        const season = params.season;
+        if (!team) {
+          sendAssistantReply(res, "Which team should I use for chances created?");
+          return;
+        }
+        if (!season) {
+          sendAssistantReply(res, "Which season should I use for chances created? (e.g., 2022/2023)");
+          return;
+        }
+        const safeTeam = String(team).replace(/'/g, "''");
+        const safeSeason = String(season).replace(/'/g, "''");
+        const query =
+          "select count(*)::int as chances_created " +
+          "from v_passes p join matches m on m.id = p.match_id " +
+          "where p.team_name ilike '%" +
+          safeTeam +
+          "%' and m.season_name = '" +
+          safeSeason +
+          "' and p.is_key_pass = true";
+        const result = await runSqlRpc(query, env);
+        const count = result.data?.[0]?.chances_created ?? 0;
+        sendAssistantReply(
+          res,
+          `${team} created ${count} chances in the ${season} season (key passes).`
+        );
         return;
       }
       let messages = [mcpSystem, ...(payload.messages || [])];
