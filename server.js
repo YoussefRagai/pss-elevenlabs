@@ -1363,15 +1363,40 @@ async function resolveTranscriptEntities(text, env, memory) {
   const aliases = memory?.aliases || {};
   Object.entries(aliases).forEach(([key, value]) => {
     const re = buildAliasRegex(key);
-    if (re.test(updated)) {
-      updated = updated.replace(re, value.value || key);
+    if (!re.test(updated)) return;
+    const target = String(value?.value || key);
+    const keyTokens = String(key)
+      .toLowerCase()
+      .replace(/[^a-z0-9\\s]/g, " ")
+      .split(/\\s+/)
+      .filter((t) => t.length >= 3);
+    if (keyTokens.length) {
+      const targetLower = target.toLowerCase();
+      const hasOverlap = keyTokens.some((t) => targetLower.includes(t));
+      if (!hasOverlap) {
+        delete aliases[key];
+        return;
+      }
     }
+    updated = updated.replace(re, target);
   });
 
   const candidates = extractCandidatePhrases(updated);
   for (const candidate of candidates) {
     const team = await findTeamMatch(env, candidate);
     if (team) {
+      const tokens = candidate
+        .toLowerCase()
+        .replace(/[^a-z0-9\\s]/g, " ")
+        .split(/\\s+/)
+        .filter((t) => t.length >= 3);
+      if (tokens.length) {
+        const teamLower = team.toLowerCase();
+        const hasOverlap = tokens.some((t) => teamLower.includes(t));
+        if (!hasOverlap) {
+          continue;
+        }
+      }
       const re = buildAliasRegex(candidate);
       updated = updated.replace(re, team);
       if (!aliases[candidate]) {
