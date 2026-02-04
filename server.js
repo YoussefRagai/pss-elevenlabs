@@ -1743,45 +1743,56 @@ async function callWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function callOpenRouter(payload, apiKey, retries = 2, fallbackModel = "moonshotai/kimi-k2:free") {
-  try {
-    const response = await callWithTimeout(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": `http://localhost:${PORT}`,
-          "X-Title": "OpenRouter Studio",
+async function callOpenRouter(
+  payload,
+  apiKey,
+  retries = 2,
+  fallbackModels = ["openai/gpt-oss-120b:free", "deepseek/deepseek-r1-0528:free"]
+) {
+  const modelsQueue = Array.isArray(fallbackModels)
+    ? fallbackModels.filter(Boolean)
+    : fallbackModels
+    ? [fallbackModels]
+    : [];
+  const initialModel = payload?.model;
+  const attemptModels = [initialModel, ...modelsQueue.filter((m) => m !== initialModel)];
+  let lastError = null;
+
+  for (const model of attemptModels) {
+    try {
+      const response = await callWithTimeout(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": `http://localhost:${PORT}`,
+            "X-Title": "OpenRouter Studio",
+          },
+          body: JSON.stringify({ ...payload, model }),
         },
-        body: JSON.stringify(payload),
-      },
-      120000
-    );
+        120000
+      );
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      const message = err?.error?.message || err?.message || response.statusText;
-      const shouldFallback = response.status >= 500 || response.status === 429;
-      if (shouldFallback && fallbackModel && payload?.model !== fallbackModel) {
-        const fallbackPayload = { ...payload, model: fallbackModel };
-        try {
-          return await callOpenRouter(fallbackPayload, apiKey, retries, null);
-        } catch (fallbackError) {
-          throw new Error(message);
-        }
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        const message = err?.error?.message || err?.message || response.statusText;
+        lastError = new Error(message);
+        continue;
       }
-      throw new Error(message);
-    }
 
-    return response.json();
-  } catch (error) {
-    if (retries > 0 && error?.name === "AbortError") {
-      return callOpenRouter(payload, apiKey, retries - 1);
+      return response.json();
+    } catch (error) {
+      lastError = error;
+      if (error?.name === "AbortError" && retries > 0) {
+        retries -= 1;
+        continue;
+      }
     }
-    throw error;
   }
+
+  throw lastError || new Error("Provider returned error");
 }
 
 function buildAnalysisPrompt(userPrompt, dataPreview, rowCount) {
@@ -2966,7 +2977,7 @@ async function handleVoiceTool(req, res) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "openai/gpt-oss-120b:free",
+            model: "openrouter/free",
             source: "voice",
             messages: [{ role: "user", content: query }],
           }),
