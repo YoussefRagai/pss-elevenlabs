@@ -4007,7 +4007,7 @@ async function proxyChat(req, res) {
           if (matchedTeam) team = matchedTeam;
         }
         if (!team) {
-          const byMatch = String(lastQuestionRaw).match(/by\\s+(.+?)(?:\\s+in|\\s+for|$)/i);
+          const byMatch = String(lastQuestionRaw).match(/by\s+(.+?)(?:\s+in|\s+for|$)/i);
           if (byMatch) {
             const candidate = byMatch[1].trim();
             const resolvedTeam = await findTeamMatch(env, candidate);
@@ -4016,7 +4016,7 @@ async function proxyChat(req, res) {
         }
         if (!team) {
           const chanceMatch = String(lastQuestionRaw).match(
-            /chances?\\s+created(?:\\s+by|\\s+for)?\\s+(.+?)(?:\\s+in|\\s+season|$)/i
+            /chances?\s+created(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i
           );
           if (chanceMatch) {
             const candidate = chanceMatch[1].trim();
