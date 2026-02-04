@@ -363,7 +363,7 @@ async function verifyAndRepairRenderResult(args, toolResult, ctx, env) {
   }
 
   if (expectedMax && toolResult?.row_count && toolResult.row_count > expectedMax * 1.2) {
-    if (!/\\blimit\\b/i.test(args.query)) {
+    if (!/\blimit\b/i.test(args.query)) {
       const limited = `${args.query} limit ${expectedMax}`;
       const nextArgs = { ...args, query: limited };
       const retried = await renderMplSoccer(nextArgs, env);
@@ -392,7 +392,7 @@ function ensureSelectIncludes(query, column) {
   if (!query || !column) return query;
   const lower = query.toLowerCase();
   if (lower.includes(column.toLowerCase())) return query;
-  const selectRegex = /select\\s+(distinct\\s+)?/i;
+  const selectRegex = /select\s+(distinct\s+)?/i;
   let targetIndex = lower.indexOf("select");
   if (lower.startsWith("with")) {
     const lastSelect = lower.lastIndexOf("select");
@@ -420,8 +420,8 @@ function ensureTeamNameInQuery(query) {
 function ensureSeasonNameQuery(query) {
   if (!query) return query;
   if (!/season_name/i.test(query)) return query;
-  if (/from\\s+viz_match_events\\b/i.test(query)) {
-    return query.replace(/from\\s+viz_match_events\\b/i, "from viz_match_events_with_match");
+  if (/from\s+viz_match_events\b/i.test(query)) {
+    return query.replace(/from\s+viz_match_events\b/i, "from viz_match_events_with_match");
   }
   return query;
 }
@@ -493,27 +493,27 @@ function applyVisualOverrides(params, prompt) {
 
 function cleanEntityName(value) {
   let text = String(value || "").trim();
-  text = text.replace(/^(show me|show|compare|comparing|between|give me|display|plot|draw|visualize)\\s+/i, "");
+  text = text.replace(/^(show me|show|compare|comparing|between|give me|display|plot|draw|visualize)\s+/i, "");
   text = stripTeamPrefix(text);
-  text = text.replace(/^(the\\s+)?team\\s+/i, "");
-  text = text.replace(/^(the\\s+)?player\\s+/i, "");
+  text = text.replace(/^(the\s+)?team\s+/i, "");
+  text = text.replace(/^(the\s+)?player\s+/i, "");
   return text.trim();
 }
 
 function extractParamsFromPrompt(prompt, memory) {
   const params = {};
   const normalized = normalizePrompt(prompt);
-  const lastMatch = normalized.match(/last\\s+(\\d+)\\s+matches?/i);
+  const lastMatch = normalized.match(/last\s+(\d+)\s+matches?/i);
   if (lastMatch) params.last_n = Number(lastMatch[1]);
-  const seasonMatch = normalized.match(/(\\d{4}\/\\d{4})/);
+  const seasonMatch = normalized.match(/(\d{4}\/\d{4})/);
   if (seasonMatch) params.season = seasonMatch[1];
   if (!params.season) {
-    const seasonAlt = normalized.match(/(\\d{4})\\s*[-/]\\s*(\\d{4})/);
+    const seasonAlt = normalized.match(/(\d{4})\s*[-/]\s*(\d{4})/);
     if (seasonAlt) params.season = `${seasonAlt[1]}/${seasonAlt[2]}`;
   }
   const compareMatch =
     normalized.match(/(?:between|comparing) (.+?) and (.+?)$/i) ||
-    normalized.match(/(.+?)\\s+(?:vs\\.?|versus|against)\\s+(.+)$/i);
+    normalized.match(/(.+?)\s+(?:vs\.?|versus|against)\s+(.+)$/i);
   if (compareMatch) {
     params.team_a = cleanEntityName(compareMatch[1]);
     params.team_b = cleanEntityName(compareMatch[2]);
@@ -522,7 +522,7 @@ function extractParamsFromPrompt(prompt, memory) {
   if (teamFromMemory) params.team = teamFromMemory;
   const concededMatch =
     normalized.match(/shots? (?:that )?(.+?) conceded/i) ||
-    normalized.match(/conceded shots? (?:by|for) (.+?)(?:\\s+in|\\s+last|$)/i);
+    normalized.match(/conceded shots? (?:by|for) (.+?)(?:\s+in|\s+last|$)/i);
   if (!params.team && concededMatch) params.team = concededMatch[1].trim();
   return params;
 }
@@ -583,23 +583,23 @@ function fillQueryTemplate(template, params) {
   }
   if (params.team) {
     const escaped = String(params.team).replace(/'/g, "''");
-    query = query.replace(/\\{\\{team\\}\\}/gi, escaped);
+    query = query.replace(/\{\{team\}\}/gi, escaped);
   }
   if (params.season) {
     const escaped = String(params.season).replace(/'/g, "''");
-    query = query.replace(/\\{\\{season\\}\\}/gi, escaped);
+    query = query.replace(/\{\{season\}\}/gi, escaped);
   }
   if (params.last_n != null) {
-    query = query.replace(/\\{\\{last_n\\}\\}/gi, String(params.last_n));
+    query = query.replace(/\{\{last_n\}\}/gi, String(params.last_n));
   }
   return query;
 }
 
 function insertClauseBeforeLimit(query, clause) {
-  if (!/\\blimit\\b/i.test(query)) {
+  if (!/\blimit\b/i.test(query)) {
     return `${query} ${clause}`;
   }
-  return query.replace(/\\blimit\\b[\\s\\S]*$/i, (match) => `${clause} ${match}`);
+  return query.replace(/\blimit\b[\s\S]*$/i, (match) => `${clause} ${match}`);
 }
 
 function ensureConcededQuery(query, team) {
@@ -617,10 +617,10 @@ function ensureConcededQuery(query, team) {
     "%' or away_team_name ilike '%" +
     safeTeam +
     "%')";
-  if (/\\bwhere\\b/i.test(query)) {
+  if (/\bwhere\b/i.test(query)) {
     return insertClauseBeforeLimit(query, clause);
   }
-  return insertClauseBeforeLimit(query, `where ${clause.replace(/^and\\s+/i, "")}`);
+  return insertClauseBeforeLimit(query, `where ${clause.replace(/^and\s+/i, "")}`);
 }
 
 function addLearnedTemplate({ chartType, query, sourcePrompt, memory }) {
@@ -1237,19 +1237,19 @@ function extractEntityCandidate(text) {
   if (betweenMatch) return null;
   const namedMatch = normalized.match(/(?:player|team) ([^,]+)$/i);
   if (namedMatch) return namedMatch[1].trim();
-  const nameMatch = normalized.match(/([A-Z][a-z]+\\s+[A-Z][a-z]+(?:\\s+[A-Z][a-z]+)?)/);
+  const nameMatch = normalized.match(/([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
   if (nameMatch) return nameMatch[1].trim();
   return null;
 }
 
 function buildAliasRegex(key) {
   const escaped = escapeRegex(key);
-  const withSpaces = escaped.replace(/\\s+/g, "\\\\s*");
+  const withSpaces = escaped.replace(/\s+/g, "\\s*");
   return new RegExp(`\\b${withSpaces}\\b`, "i");
 }
 
 function fuzzyLikePattern(value) {
-  const compact = String(value).replace(/\\s+/g, "");
+  const compact = String(value).replace(/\s+/g, "");
   if (!compact) return "";
   return compact.split("").join("%");
 }
@@ -1257,8 +1257,8 @@ function fuzzyLikePattern(value) {
 function extractCandidatePhrases(text) {
   const normalized = String(text || "")
     .toLowerCase()
-    .replace(/[^a-z0-9\\s]/g, " ")
-    .replace(/\\s+/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
   if (!normalized) return [];
   const tokens = normalized.split(" ").filter((t) => t.length >= 3);
@@ -1311,13 +1311,13 @@ async function findTeamMatch(env, candidate) {
   const safe = candidate.replace(/'/g, "''");
   const tokens = candidate
     .toLowerCase()
-    .replace(/[^a-z0-9\\s]/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length >= 3);
   if (tokens.length) {
     const tokenClause = tokens
       .map((t) => {
-        const collapsed = t.replace(/(.)\\1+/g, "$1");
+        const collapsed = t.replace(/(.)\1+/g, "$1");
         const safeToken = t.replace(/'/g, "''");
         const safeCollapsed = collapsed.replace(/'/g, "''");
         if (collapsed && collapsed !== t) {
@@ -1375,8 +1375,8 @@ async function resolveTranscriptEntities(text, env, memory) {
     const target = String(value?.value || key);
     const keyTokens = String(key)
       .toLowerCase()
-      .replace(/[^a-z0-9\\s]/g, " ")
-      .split(/\\s+/)
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
       .filter((t) => t.length >= 3);
     if (keyTokens.length) {
       const targetLower = target.toLowerCase();
@@ -1395,8 +1395,8 @@ async function resolveTranscriptEntities(text, env, memory) {
     if (team) {
       const tokens = candidate
         .toLowerCase()
-        .replace(/[^a-z0-9\\s]/g, " ")
-        .split(/\\s+/)
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
         .filter((t) => t.length >= 3);
       if (tokens.length) {
         const teamLower = team.toLowerCase();
@@ -1589,18 +1589,18 @@ function parsePassMapComparePrompt(text) {
 
 function stripTeamPrefix(text) {
   return String(text || "")
-    .replace(/^(the\\s+)?last\\s+\\d+\\s+shots?\\s+(taken\\s+by|by|for)\\s+/i, "")
-    .replace(/^(the\\s+)?shots?\\s+(taken\\s+by|by|for)\\s+/i, "")
-    .replace(/^the\\s+/i, "")
+    .replace(/^(the\s+)?last\s+\d+\s+shots?\s+(taken\s+by|by|for)\s+/i, "")
+    .replace(/^(the\s+)?shots?\s+(taken\s+by|by|for)\s+/i, "")
+    .replace(/^the\s+/i, "")
     .trim();
 }
 
 function parseLastShotsComparePrompt(text) {
   const normalized = normalizePrompt(text);
-  const limitMatch = normalized.match(/last\\s+(\\d+)\\s+shots?/i);
+  const limitMatch = normalized.match(/last\s+(\d+)\s+shots?/i);
   if (!limitMatch) return null;
   const limit = Number(limitMatch[1]);
-  const vsMatch = normalized.match(/(.+?)\\s+(?:vs\\b|versus|against)\\s+(.+)$/i);
+  const vsMatch = normalized.match(/(.+?)\s+(?:vs\b|versus|against)\s+(.+)$/i);
   if (!vsMatch) return null;
   const left = cleanEntityName(vsMatch[1]);
   const right = cleanEntityName(vsMatch[2]);
@@ -1730,19 +1730,19 @@ function parseOrientation(text) {
 }
 
 function parseHalfPitch(text) {
-  return /(half[-\\s]?pitch|half pitch|half)/i.test(text);
+  return /(half[-\s]?pitch|half pitch|half)/i.test(text);
 }
 
 function parseShotMapTeamPrompt(text) {
   const normalized = normalizePrompt(text);
   if (!/shot map/i.test(normalized)) return null;
-  if (/comparing|between|vs\\b|against\\b/i.test(normalized)) return null;
-  const match = normalized.match(/shot map(?:\\s+for|\\s+of)?\\s+(.+?)$/i);
+  if (/comparing|between|vs\b|against\b/i.test(normalized)) return null;
+  const match = normalized.match(/shot map(?:\s+for|\s+of)?\s+(.+?)$/i);
   if (!match) return null;
   let team = match[1].trim();
-  team = team.replace(/\\b(team)\\b/i, "").trim();
-  team = team.replace(/\\b(shots?)\\b.*$/i, "").trim();
-  team = team.replace(/\\b(in|from)\\b.*\\b(season|random match)\\b.*$/i, "").trim();
+  team = team.replace(/\b(team)\b/i, "").trim();
+  team = team.replace(/\b(shots?)\b.*$/i, "").trim();
+  team = team.replace(/\b(in|from)\b.*\b(season|random match)\b.*$/i, "").trim();
   if (!team) return null;
   return { team, orientation: parseOrientation(text), half: parseHalfPitch(text) };
 }
@@ -1752,7 +1752,7 @@ function parseShotsComparePrompt(text) {
   if (!/shots?/i.test(normalized)) return null;
   const match =
     normalized.match(/(?:between|comparing) (.+?) and (.+?)$/i) ||
-    normalized.match(/(.+?)\\s+(?:vs\\.?|versus|against)\\s+(.+)$/i);
+    normalized.match(/(.+?)\s+(?:vs\.?|versus|against)\s+(.+)$/i);
   if (!match) return null;
   const teamA = cleanEntityName(match[1]);
   const teamB = cleanEntityName(match[2]);
@@ -1764,11 +1764,11 @@ function parseShotsComparePrompt(text) {
 function parsePitchPlotTeamPrompt(text) {
   const normalized = normalizePrompt(text);
   if (!/pitch plot/i.test(normalized)) return null;
-  const match = normalized.match(/pitch plot(?:\\s+of|\\s+for)?\\s+(.+?)$/i);
+  const match = normalized.match(/pitch plot(?:\s+of|\s+for)?\s+(.+?)$/i);
   if (!match) return null;
   let team = match[1].trim();
-  team = team.replace(/\\b(team)\\b/i, "").trim();
-  team = team.replace(/\\b(successful\\s+passes?|passes?|shots?)\\b.*$/i, "").trim();
+  team = team.replace(/\b(team)\b/i, "").trim();
+  team = team.replace(/\b(successful\s+passes?|passes?|shots?)\b.*$/i, "").trim();
   if (!team) return null;
   const kind = /pass/i.test(normalized) ? "pass" : /shot/i.test(normalized) ? "shot" : "pass";
   return { team, kind, orientation: parseOrientation(text), half: parseHalfPitch(text) };
@@ -2079,7 +2079,7 @@ function parseWhereClause(whereClause, columns) {
       continue;
     }
 
-    match = part.match(/^([a-zA-Z0-9_]+)\s+in\s*\\(([^)]*)\\)$/i);
+    match = part.match(/^([a-zA-Z0-9_]+)\s+in\s*\(([^)]*)\)$/i);
     if (match) {
       const col = match[1];
       if (columns.includes(col)) {
@@ -2147,7 +2147,7 @@ function parseSelect(select, columns) {
 async function executeSqlQuery(query, env, schema) {
   const normalized = query.trim().replace(/\s+/g, " ");
   const match = normalized.match(
-    /^select (.+) from ([a-zA-Z0-9_]+)(?: where (.+?))?(?: group by ([a-zA-Z0-9_]+))?(?: limit (\\d+))?$/i
+    /^select (.+) from ([a-zA-Z0-9_]+)(?: where (.+?))?(?: group by ([a-zA-Z0-9_]+))?(?: limit (\d+))?$/i
   );
   if (!match) {
     throw new Error(
@@ -2268,38 +2268,38 @@ function rewriteSqlOnError(query, errorMsg) {
     rewritten = `${rewritten} limit 5000`;
   }
   if (lower.includes("statement timeout")) {
-    if (!/\\blimit\\b/i.test(rewritten)) {
+    if (!/\blimit\b/i.test(rewritten)) {
       rewritten = `${rewritten} limit 5000`;
     }
   }
   if (lower.includes("column") && lower.includes("end_x")) {
-    rewritten = rewritten.replace(/,\\s*end_x\\s*/gi, ", ");
-    rewritten = rewritten.replace(/end_x\\s*,\\s*/gi, "");
-    rewritten = rewritten.replace(/end_x\\b/gi, "");
+    rewritten = rewritten.replace(/,\s*end_x\s*/gi, ", ");
+    rewritten = rewritten.replace(/end_x\s*,\s*/gi, "");
+    rewritten = rewritten.replace(/end_x\b/gi, "");
   }
   if (lower.includes("column") && lower.includes("end_y")) {
-    rewritten = rewritten.replace(/,\\s*end_y\\s*/gi, ", ");
-    rewritten = rewritten.replace(/end_y\\s*,\\s*/gi, "");
-    rewritten = rewritten.replace(/end_y\\b/gi, "");
+    rewritten = rewritten.replace(/,\s*end_y\s*/gi, ", ");
+    rewritten = rewritten.replace(/end_y\s*,\s*/gi, "");
+    rewritten = rewritten.replace(/end_y\b/gi, "");
   }
   return rewritten.trim();
 }
 
 function validateColumnsInSql(query, schema) {
-  const tableMatch = query.match(/from\\s+([a-zA-Z0-9_]+)/i);
+  const tableMatch = query.match(/from\s+([a-zA-Z0-9_]+)/i);
   if (!tableMatch) return true;
   const table = tableMatch[1];
   const tableInfo = findTable(schema, table);
   if (!tableInfo) return false;
   const columns = getTableColumns(schema, table);
-  const selectMatch = query.match(/select\\s+(.+?)\\s+from/i);
+  const selectMatch = query.match(/select\s+(.+?)\s+from/i);
   if (!selectMatch) return true;
   const selectPart = selectMatch[1];
   const parts = selectPart.split(",").map((p) => p.trim());
   for (const part of parts) {
-    const col = part.replace(/\\b(count|sum|avg|min|max)\\s*\\(|\\)|\\sas\\s+.+$/gi, "").trim();
-    if (!col || col === "*" || /\\d/.test(col)) continue;
-    if (!columns.includes(col) && !/\\s+as\\s+/i.test(part)) {
+    const col = part.replace(/\b(count|sum|avg|min|max)\s*\(|\)|\sas\s+.+$/gi, "").trim();
+    if (!col || col === "*" || /\d/.test(col)) continue;
+    if (!columns.includes(col) && !/\s+as\s+/i.test(part)) {
       return false;
     }
   }
@@ -3531,7 +3531,7 @@ async function proxyChat(req, res) {
       }
 
       const prePitchPlotQuestion = resolveAlias(lastQuestionRaw, memory);
-      if (/pitch plot/i.test(prePitchPlotQuestion) && !/conceded|concede/i.test(prePitchPlotQuestion) && !/last\\s+\\d+\\s+matches?/i.test(prePitchPlotQuestion)) {
+      if (/pitch plot/i.test(prePitchPlotQuestion) && !/conceded|concede/i.test(prePitchPlotQuestion) && !/last\s+\d+\s+matches?/i.test(prePitchPlotQuestion)) {
         const parsedPitch = parsePitchPlotTeamPrompt(prePitchPlotQuestion);
         const team =
           findKnownTeam(parsedPitch?.team || prePitchPlotQuestion, memory) ||
@@ -3559,9 +3559,9 @@ async function proxyChat(req, res) {
       const preShotQuestion = resolveAlias(lastQuestionRaw, memory);
       if (
         /shot map/i.test(preShotQuestion) &&
-        !/comparing|between|vs\\b|against\\b/i.test(preShotQuestion) &&
+        !/comparing|between|vs\b|against\b/i.test(preShotQuestion) &&
         !/conceded|concede/i.test(preShotQuestion) &&
-        !/last\\s+\\d+\\s+matches?/i.test(preShotQuestion) &&
+        !/last\s+\d+\s+matches?/i.test(preShotQuestion) &&
         !/random match/i.test(preShotQuestion) &&
         !/\d{4}\/\d{4}/.test(preShotQuestion)
       ) {
