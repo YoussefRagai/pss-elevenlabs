@@ -3686,10 +3686,17 @@ async function proxyChat(req, res) {
           return;
         }
         const query = buildChancesPassMapQuery(team, season);
+        const result = await runSqlRpc(query, env);
+        const data = result.data || [];
+        if (!data.length) {
+          sendAssistantReply(res, `No chances found for ${team} in the ${season} season.`);
+          return;
+        }
         const image = await renderMplSoccerAndLearn(
           {
             chart_type: "pass_map",
             query,
+            data,
             orientation: parseOrientation(lastQuestionRaw),
             half: parseHalfPitch(lastQuestionRaw)
           },
