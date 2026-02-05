@@ -524,6 +524,10 @@ function extractParamsFromPrompt(prompt, memory) {
     normalized.match(/shots? (?:that )?(.+?) conceded/i) ||
     normalized.match(/conceded shots? (?:by|for) (.+?)(?:\s+in|\s+last|$)/i);
   if (!params.team && concededMatch) params.team = concededMatch[1].trim();
+  const chancesMatch = normalized.match(/chances?\s+created(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i);
+  if (!params.team && chancesMatch) params.team = chancesMatch[1].trim();
+  const keyPassMatch = normalized.match(/key\s+passes?(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i);
+  if (!params.team && keyPassMatch) params.team = keyPassMatch[1].trim();
   return params;
 }
 
