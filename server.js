@@ -563,7 +563,7 @@ function buildChancesPassMapQuery(team, season) {
   const altTeam = safeTeam.replace(/(.)\1+/g, "$1");
   const safeSeason = String(season || "").replace(/'/g, "''");
   return (
-    "select p.x, p.y, p.end_x, p.end_y, p.team_name " +
+    "select start_x as x, start_y as y, end_x, end_y, team_name " +
     "from v_passes p join matches m on m.id = p.match_id " +
     "where p.is_key_pass = true " +
     "and (p.team_name ilike '%" +
