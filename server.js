@@ -524,6 +524,10 @@ function extractParamsFromPrompt(prompt, memory) {
     normalized.match(/shots? (?:that )?(.+?) conceded/i) ||
     normalized.match(/conceded shots? (?:by|for) (.+?)(?:\s+in|\s+last|$)/i);
   if (!params.team && concededMatch) params.team = concededMatch[1].trim();
+  const concededGoalsMatch =
+    normalized.match(/goals?\s+conceded(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i) ||
+    normalized.match(/conceded\s+goals?\s+(?:by|for)\s+(.+?)(?:\s+in|\s+season|$)/i);
+  if (!params.team && concededGoalsMatch) params.team = concededGoalsMatch[1].trim();
   const chancesMatch = normalized.match(/chances?\s+created(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i);
   if (!params.team && chancesMatch) params.team = chancesMatch[1].trim();
   const keyPassMatch = normalized.match(/key\s+passes?(?:\s+by|\s+for)?\s+(.+?)(?:\s+in|\s+season|$)/i);
@@ -3278,6 +3282,16 @@ async function proxyChat(req, res) {
       orchestration.id = requestId;
       orchestration.raw_prompt = lastQuestionRaw;
       if (orchestration?.clarification) {
+        const candidate = extractEntityCandidate(lastQuestionRaw);
+        if (candidate && !memory.aliases?.[candidate]) {
+          savePending({ kind: "alias", key: candidate, original: lastQuestionRaw });
+          sendAssistantReply(
+            res,
+            `When you say "${candidate}", is that a team, a player's name, or a nickname?`
+          );
+          logTrace(requestId, "clarification_sent", { question: "alias", candidate });
+          return;
+        }
         sendAssistantReply(res, orchestration.clarification);
         logTrace(requestId, "clarification_sent", { question: orchestration.clarification });
         return;
