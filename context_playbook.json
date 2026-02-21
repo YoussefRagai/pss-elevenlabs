@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "intents": {
+    "weakness_profile": {
+      "description": "Identify tactical weaknesses and exploitable patterns.",
+      "preferred_tables": [
+        "viz_match_events_with_match",
+        "event_analytics",
+        "event_xg",
+        "matches"
+      ],
+      "metrics": [
+        "shots_conceded",
+        "xg_conceded",
+        "turnovers_under_pressure",
+        "progressive_carries_allowed",
+        "crosses_conceded"
+      ],
+      "default_chart_type": "heatmap",
+      "fallback_query_path": "run_sql_rpc"
+    },
+    "pressing_profile": {
+      "description": "Quantify pressing intensity and pressing outcomes.",
+      "preferred_tables": [
+        "viz_match_events_with_match",
+        "event_analytics"
+      ],
+      "metrics": [
+        "pressure_events",
+        "final_third_regains",
+        "opp_long_balls_forced"
+      ],
+      "default_chart_type": "pitch_plot",
+      "fallback_query_path": "run_sql_rpc"
+    },
+    "transition_defense": {
+      "description": "Measure defensive stability after possession loss.",
+      "preferred_tables": [
+        "event_analytics",
+        "viz_match_events_with_match"
+      ],
+      "metrics": [
+        "counter_shots_conceded",
+        "counter_xg_conceded",
+        "recovery_time"
+      ],
+      "default_chart_type": "pass_map",
+      "fallback_query_path": "run_sql_rpc"
+    }
+  }
+}

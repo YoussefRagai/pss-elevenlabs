@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "tables": [
+    {
+      "name": "matches",
+      "key_columns": ["id", "date_time", "season_id", "home_team_id", "away_team_id"]
+    },
+    {
+      "name": "match_events",
+      "key_columns": ["id", "match_id", "team_id", "player_id", "event_id", "result_id", "x", "y"]
+    },
+    {
+      "name": "event_analytics",
+      "key_columns": ["event_id", "end_x", "end_y", "delta_x", "delta_y", "carry_distance", "possession_chain_id"]
+    },
+    {
+      "name": "event_xg",
+      "key_columns": ["event_id", "xg", "xgot", "xg_chain"]
+    },
+    {
+      "name": "viz_match_events_with_match",
+      "key_columns": [
+        "match_id",
+        "team_name",
+        "player_name",
+        "event_name",
+        "result_name",
+        "x",
+        "y",
+        "date_time",
+        "season_name"
+      ]
+    }
+  ],
+  "joins": [
+    "match_events.match_id = matches.id",
+    "event_analytics.event_id = match_events.id",
+    "event_xg.event_id = match_events.id"
+  ],
+  "notes": [
+    "Prefer run_sql_rpc for joins and tactical aggregations.",
+    "Use viz_match_events_with_match for event-level analytics with team/player labels.",
+    "Use bounded LIMIT when sampling event rows for visualization."
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "aliases": {
+    "egypt": ["Al Ahly SC", "Zamalek SC", "Egypt"],
+    "england": ["England", "Liverpool", "Manchester City"],
+    "spain": ["Spain", "Real Madrid", "Barcelona"],
+    "germany": ["Germany", "Bayern Munich", "Borussia Dortmund"],
+    "france": ["France", "Paris Saint-Germain"],
+    "italy": ["Italy", "Inter", "AC Milan"]
+  }
+}

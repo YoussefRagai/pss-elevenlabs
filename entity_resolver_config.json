@@ -1,0 +1,11 @@
+{
+  "score_threshold": 0.58,
+  "top_k": 3,
+  "weights": {
+    "token_overlap": 0.4,
+    "trigram_overlap": 0.2,
+    "edit_similarity": 0.2,
+    "starts_with": 0.1,
+    "contains": 0.1
+  }
+}

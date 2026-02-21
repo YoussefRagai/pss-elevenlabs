@@ -5,3 +5,4 @@ __pycache__/
 *.pid
 *.DS_Store
 kora.agent.json
+training/out/

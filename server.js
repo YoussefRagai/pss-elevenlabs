@@ -17,10 +17,40 @@ const voiceEventClients = new Set();
 const TRACE_PATH = path.join(ROOT, "trace.log");
 const traceStore = new Map();
 const TRACE_LIMIT = 200;
+const CONTEXT_PLAYBOOK_PATH = path.join(ROOT, "context_playbook.json");
+const SCHEMA_DIGEST_PATH = path.join(ROOT, "schema_digest.json");
+const COUNTRY_ALIASES_PATH = path.join(ROOT, "country_aliases.json");
+const ENTITY_RESOLVER_CONFIG_PATH = path.join(ROOT, "entity_resolver_config.json");
+const ENTITY_INDEX_TTL_MS = 10 * 60 * 1000;
+const PLANNER_V2_ENABLED = process.env.PLANNER_V2_ENABLED === "true";
+const PLANNER_V2_SHADOW = process.env.PLANNER_V2_SHADOW === "true";
+const PLANNER_V2_ROLLOUT_PERCENT = Math.max(
+  0,
+  Math.min(100, Number(process.env.PLANNER_V2_ROLLOUT_PERCENT || 100))
+);
+const PLANNER_V2_MIN_REQUESTS_FOR_GUARD = Number(process.env.PLANNER_V2_MIN_REQUESTS_FOR_GUARD || 20);
+const PLANNER_V2_MAX_FAIL_RATE = Number(process.env.PLANNER_V2_MAX_FAIL_RATE || 0.25);
 
 const schemaCache = {
   data: null,
   loadedAt: 0,
+};
+
+const entityIndexCache = {
+  loadedAt: 0,
+  teams: [],
+  players: [],
+  nicknames: [],
+  tokenMap: new Map(),
+  trigramMap: new Map(),
+};
+
+const plannerV2Guard = {
+  enabledOverride: null,
+  total: 0,
+  failed: 0,
+  lastError: null,
+  disabledAt: null,
 };
 
 function parseEnvFile() {
@@ -83,8 +113,251 @@ function saveJson(path, data) {
   fs.writeFileSync(path, JSON.stringify(data, null, 2));
 }
 
+function loadContextPlaybook() {
+  return loadJson(CONTEXT_PLAYBOOK_PATH, { intents: {} }) || { intents: {} };
+}
+
+function loadSchemaDigest() {
+  return loadJson(SCHEMA_DIGEST_PATH, { tables: [], joins: [], notes: [] }) || {
+    tables: [],
+    joins: [],
+    notes: [],
+  };
+}
+
+function loadCountryAliases() {
+  return loadJson(COUNTRY_ALIASES_PATH, { aliases: {} }) || { aliases: {} };
+}
+
+function loadEntityResolverConfig() {
+  return (
+    loadJson(ENTITY_RESOLVER_CONFIG_PATH, {
+      score_threshold: 0.58,
+      top_k: 3,
+      weights: {
+        token_overlap: 0.4,
+        trigram_overlap: 0.2,
+        edit_similarity: 0.2,
+        starts_with: 0.1,
+        contains: 0.1,
+      },
+    }) || {}
+  );
+}
+
 function normalizePromptKey(text) {
   return normalizePrompt(text).toLowerCase();
+}
+
+function normalizeEntityText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeEntityText(value) {
+  return normalizeEntityText(value)
+    .split(" ")
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+}
+
+function trigrams(value) {
+  const txt = normalizeEntityText(value).replace(/\s+/g, "_");
+  const out = new Set();
+  for (let i = 0; i < txt.length - 2; i += 1) out.add(txt.slice(i, i + 3));
+  return out;
+}
+
+function overlapRatio(setA, setB) {
+  if (!setA?.size || !setB?.size) return 0;
+  let inter = 0;
+  for (const token of setA) {
+    if (setB.has(token)) inter += 1;
+  }
+  return inter / Math.max(setA.size, setB.size);
+}
+
+function levenshteinDistance(a, b) {
+  const s = String(a || "");
+  const t = String(b || "");
+  const m = s.length;
+  const n = t.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
+
+function scoreEntityCandidate(surface, item, cfg) {
+  const normalizedSurface = normalizeEntityText(surface);
+  const surfaceTokens = new Set(tokenizeEntityText(surface));
+  const surfaceTri = trigrams(surface);
+  const itemTokens = item.tokens || new Set();
+  const itemTri = item.trigrams || new Set();
+  const tokenOverlap = overlapRatio(surfaceTokens, itemTokens);
+  const trigramOverlap = overlapRatio(surfaceTri, itemTri);
+  const startsWith = item.normalized.startsWith(normalizedSurface) ? 1 : 0;
+  const contains = item.normalized.includes(normalizedSurface) ? 1 : 0;
+  const dist = levenshteinDistance(normalizedSurface, item.normalized);
+  const editSimilarity = 1 - dist / Math.max(1, Math.max(normalizedSurface.length, item.normalized.length));
+  const weights = cfg?.weights || {};
+  const score =
+    (weights.token_overlap ?? 0.4) * tokenOverlap +
+    (weights.trigram_overlap ?? 0.2) * trigramOverlap +
+    (weights.edit_similarity ?? 0.2) * Math.max(0, editSimilarity) +
+    (weights.starts_with ?? 0.1) * startsWith +
+    (weights.contains ?? 0.1) * contains;
+  return Number(score.toFixed(4));
+}
+
+function addIndexPosting(map, key, idx) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, new Set());
+  map.get(key).add(idx);
+}
+
+function upsertEntityIndex(items, type, source) {
+  const out = [];
+  for (const row of items) {
+    const value = String(row?.name || "").trim();
+    if (!value) continue;
+    const normalized = normalizeEntityText(value);
+    if (!normalized) continue;
+    out.push({
+      type,
+      value,
+      source,
+      normalized,
+      tokens: new Set(tokenizeEntityText(value)),
+      trigrams: trigrams(value),
+      id: row.id,
+    });
+  }
+  return out;
+}
+
+async function ensureEntityIndexes(env) {
+  const now = Date.now();
+  if (entityIndexCache.loadedAt && now - entityIndexCache.loadedAt < ENTITY_INDEX_TTL_MS) {
+    return entityIndexCache;
+  }
+  const [teamsResult, playersResult] = await Promise.all([
+    runSqlRpc("select id, name from teams where name is not null", env),
+    runSqlRpc("select id, name, nickname from players where name is not null or nickname is not null", env),
+  ]);
+  const teams = upsertEntityIndex(teamsResult.data || [], "team_name", "team_index");
+  const playerNames = upsertEntityIndex(
+    (playersResult.data || []).map((p) => ({ id: p.id, name: p.name })),
+    "player_name",
+    "player_index"
+  );
+  const nicknames = upsertEntityIndex(
+    (playersResult.data || [])
+      .filter((p) => p.nickname)
+      .map((p) => ({ id: p.id, name: p.nickname })),
+    "player_nickname",
+    "nickname_index"
+  );
+  const all = [...teams, ...playerNames, ...nicknames];
+  const tokenMap = new Map();
+  const trigramMap = new Map();
+  all.forEach((item, idx) => {
+    item.tokens.forEach((t) => addIndexPosting(tokenMap, t, idx));
+    item.trigrams.forEach((g) => addIndexPosting(trigramMap, g, idx));
+  });
+  entityIndexCache.loadedAt = now;
+  entityIndexCache.teams = teams;
+  entityIndexCache.players = playerNames;
+  entityIndexCache.nicknames = nicknames;
+  entityIndexCache.tokenMap = tokenMap;
+  entityIndexCache.trigramMap = trigramMap;
+  return entityIndexCache;
+}
+
+function gatherCandidateIndexes(surface, indexCache) {
+  const ids = new Set();
+  tokenizeEntityText(surface).forEach((token) => {
+    const set = indexCache.tokenMap.get(token);
+    if (set) set.forEach((id) => ids.add(id));
+  });
+  trigrams(surface).forEach((gram) => {
+    const set = indexCache.trigramMap.get(gram);
+    if (set) set.forEach((id) => ids.add(id));
+  });
+  return ids;
+}
+
+function parsePlanV1(raw) {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    return null;
+  }
+}
+
+function validatePlanV1(plan) {
+  if (!plan || typeof plan !== "object") return { ok: false, error: "Plan missing" };
+  const required = [
+    "version",
+    "intent",
+    "context_intent",
+    "entities",
+    "metrics",
+    "tool_sequence",
+    "vis_recommendation",
+    "confidence",
+    "assumptions",
+    "fallback_if_empty",
+  ];
+  for (const key of required) {
+    if (!(key in plan)) return { ok: false, error: `Missing ${key}` };
+  }
+  if (plan.version !== "plan_v1") return { ok: false, error: "Unsupported version" };
+  if (!Array.isArray(plan.tool_sequence)) return { ok: false, error: "tool_sequence must be array" };
+  return { ok: true };
+}
+
+function isComplexPlan(plan) {
+  if (!plan) return false;
+  if (String(plan.context_intent || "").toLowerCase().includes("weakness")) return true;
+  if (plan?.entities?.team_a && plan?.entities?.team_b) return true;
+  return Array.isArray(plan.metrics) && plan.metrics.length > 3;
+}
+
+function compilePlanV1(plan) {
+  const maxCalls = isComplexPlan(plan) ? 4 : 2;
+  const compiled = (plan.tool_sequence || []).slice(0, maxCalls).map((step) => ({
+    tool: step?.tool,
+    purpose: step?.purpose || "",
+    args: step?.args_template || {},
+  }));
+  const isVisual = String(plan?.intent || "").toLowerCase() === "visual";
+  const hasRender = compiled.some((s) => s.tool === "render_mplsoccer");
+  if (isVisual && !hasRender && compiled.length < maxCalls) {
+    compiled.push({
+      tool: "render_mplsoccer",
+      purpose: "render visualization from planned recommendation",
+      args: {
+        chart_type: plan?.vis_recommendation?.chart_type || "shot_map",
+      },
+    });
+  }
+  return compiled;
 }
 
 function getLearnedTemplates() {
@@ -105,6 +378,30 @@ function simpleHash(input) {
     hash |= 0;
   }
   return Math.abs(hash);
+}
+
+function shouldRoutePlannerV2(requestId) {
+  if (!PLANNER_V2_ENABLED) return false;
+  if (plannerV2Guard.enabledOverride === false) return false;
+  if (PLANNER_V2_ROLLOUT_PERCENT >= 100) return true;
+  if (PLANNER_V2_ROLLOUT_PERCENT <= 0) return false;
+  const bucket = simpleHash(String(requestId || randomUUID())) % 100;
+  return bucket < PLANNER_V2_ROLLOUT_PERCENT;
+}
+
+function markPlannerV2Outcome(ok, reason = null) {
+  plannerV2Guard.total += 1;
+  if (!ok) {
+    plannerV2Guard.failed += 1;
+    plannerV2Guard.lastError = reason || "unknown";
+  }
+  if (plannerV2Guard.total >= PLANNER_V2_MIN_REQUESTS_FOR_GUARD) {
+    const failRate = plannerV2Guard.failed / plannerV2Guard.total;
+    if (failRate > PLANNER_V2_MAX_FAIL_RATE) {
+      plannerV2Guard.enabledOverride = false;
+      plannerV2Guard.disabledAt = new Date().toISOString();
+    }
+  }
 }
 
 function slugify(input) {
@@ -1407,14 +1704,14 @@ async function findPlayerMatch(env, candidate) {
   const safe = candidate.replace(/'/g, "''");
   const fuzzy = fuzzyLikePattern(candidate);
   const query =
-    "select player_name, player_nickname from players " +
-    "where player_name ilike '%" +
+    "select name, nickname from players " +
+    "where name ilike '%" +
     safe +
-    "%' or player_nickname ilike '%" +
+    "%' or nickname ilike '%" +
     safe +
-    "%' or player_name ilike '%" +
+    "%' or name ilike '%" +
     fuzzy +
-    "%' or player_nickname ilike '%" +
+    "%' or nickname ilike '%" +
     fuzzy +
     "%' " +
     "limit 1";
@@ -1469,17 +1766,17 @@ async function resolveTranscriptEntities(text, env, memory) {
       continue;
     }
     const player = await findPlayerMatch(env, candidate);
-    if (player?.player_name) {
+    if (player?.name) {
       const re = buildAliasRegex(candidate);
-      updated = updated.replace(re, player.player_name);
+      updated = updated.replace(re, player.name);
       if (!aliases[candidate]) {
-        aliases[candidate] = { type: "player_name", value: player.player_name };
+        aliases[candidate] = { type: "player_name", value: player.name };
       }
-    } else if (player?.player_nickname) {
+    } else if (player?.nickname) {
       const re = buildAliasRegex(candidate);
-      updated = updated.replace(re, player.player_nickname);
+      updated = updated.replace(re, player.nickname);
       if (!aliases[candidate]) {
-        aliases[candidate] = { type: "player_nickname", value: player.player_nickname };
+        aliases[candidate] = { type: "player_nickname", value: player.nickname };
       }
     }
   }
@@ -1487,6 +1784,177 @@ async function resolveTranscriptEntities(text, env, memory) {
   const updatedMemory = { ...memory, aliases };
   saveMemory(updatedMemory);
   return updated;
+}
+
+async function probeEntityCandidate(candidate, env) {
+  try {
+    if (candidate.type === "team_name") {
+      const safe = candidate.value.replace(/'/g, "''");
+      const q =
+        "select count(*)::int as cnt from viz_match_events_with_match where team_name ilike '%" +
+        safe +
+        "%' limit 1";
+      const r = await runSqlRpc(q, env);
+      const rows = Number(r?.data?.[0]?.cnt || 0);
+      return { status: rows > 0 ? "passed" : "empty", rows };
+    }
+    if (candidate.type === "player_name" || candidate.type === "player_nickname") {
+      const field = candidate.type === "player_nickname" ? "player_nickname" : "player_name";
+      const safe = candidate.value.replace(/'/g, "''");
+      const q =
+        "select count(*)::int as cnt from v_events_full where " +
+        field +
+        " ilike '%" +
+        safe +
+        "%' limit 1";
+      const r = await runSqlRpc(q, env);
+      const rows = Number(r?.data?.[0]?.cnt || 0);
+      return { status: rows > 0 ? "passed" : "empty", rows };
+    }
+    return { status: "skipped", rows: 0 };
+  } catch (error) {
+    return { status: "error", rows: 0 };
+  }
+}
+
+function mapCountryAliasCandidates(surface) {
+  const aliases = loadCountryAliases()?.aliases || {};
+  const normalized = normalizeEntityText(surface);
+  const target = aliases[normalized];
+  if (!target) return [];
+  if (Array.isArray(target)) {
+    return target.map((value) => ({
+      type: "team_name",
+      value,
+      score: 0.7,
+      source: "country_alias_index",
+    }));
+  }
+  return [
+    {
+      type: "team_name",
+      value: String(target),
+      score: 0.7,
+      source: "country_alias_index",
+    },
+  ];
+}
+
+async function resolveEntitiesV2(prompt, env, memory) {
+  const startedAt = Date.now();
+  const cfg = loadEntityResolverConfig();
+  const topK = Number(cfg?.top_k || 3);
+  const threshold = Number(cfg?.score_threshold || 0.58);
+  const indexCache = await ensureEntityIndexes(env);
+  const mentions = [];
+  let resolvedPrompt = String(prompt || "");
+  const candidates = extractCandidatePhrases(resolvedPrompt);
+  const aliases = { ...(memory?.aliases || {}) };
+
+  for (const surface of candidates) {
+    const idxs = gatherCandidateIndexes(surface, indexCache);
+    const merged = [...indexCache.teams, ...indexCache.players, ...indexCache.nicknames];
+    const scored = [];
+    idxs.forEach((idx) => {
+      const item = merged[idx];
+      if (!item) return;
+      const score = scoreEntityCandidate(surface, item, cfg);
+      if (score >= threshold) {
+        scored.push({
+          type: item.type,
+          value: item.value,
+          score,
+          source: item.source,
+        });
+      }
+    });
+    scored.push(...mapCountryAliasCandidates(surface));
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, topK);
+    if (!top.length) continue;
+
+    let selected = top[0];
+    let probe = await probeEntityCandidate(selected, env);
+    let probeRetries = 0;
+    for (let i = 1; i < top.length && probe.status !== "passed"; i += 1) {
+      probeRetries += 1;
+      const next = top[i];
+      const nextProbe = await probeEntityCandidate(next, env);
+      if (nextProbe.status === "passed" || (probe.status !== "passed" && nextProbe.rows > probe.rows)) {
+        selected = next;
+        probe = nextProbe;
+      }
+    }
+
+    const re = buildAliasRegex(surface);
+    resolvedPrompt = resolvedPrompt.replace(re, selected.value);
+    if (!aliases[surface]) aliases[surface] = { type: selected.type, value: selected.value };
+
+    mentions.push({
+      surface,
+      candidates: top,
+      selected,
+      probe: { ...probe, retries: probeRetries },
+    });
+  }
+
+  const updatedMemory = { ...memory, aliases };
+  saveMemory(updatedMemory);
+  const resolutionConfidence = mentions.length
+    ? Number(
+        (
+          mentions.reduce((sum, m) => sum + Number(m?.selected?.score || 0), 0) / mentions.length
+        ).toFixed(4)
+      )
+    : 0;
+  return {
+    mentions,
+    resolved_prompt: resolvedPrompt,
+    resolution_confidence: resolutionConfidence,
+    latency_ms: Date.now() - startedAt,
+    updated_memory: updatedMemory,
+  };
+}
+
+async function generatePlanV1({
+  prompt,
+  resolverResult,
+  env,
+  apiKey,
+  model,
+}) {
+  const playbook = loadContextPlaybook();
+  const schemaDigest = loadSchemaDigest();
+  const plannerSystem = {
+    role: "system",
+    content:
+      "You are planner v1 for football analytics. Output ONLY valid JSON for plan_v1. Do not output markdown. Choose minimal tool sequence. Prefer fewer calls. If uncertain, add assumptions and fallback_if_empty.",
+  };
+  const plannerContext = {
+    role: "system",
+    content: `SCHEMA_DIGEST=${JSON.stringify(schemaDigest)}\nCONTEXT_PLAYBOOK=${JSON.stringify(
+      playbook
+    )}\nENTITY_RESOLUTION=${JSON.stringify(resolverResult)}`,
+  };
+  const user = {
+    role: "user",
+    content:
+      `Create plan_v1 for: ${prompt}\n` +
+      `Tool names allowed: get_schema,get_semantic_hints,query_public_table,count_public_table,aggregate_public_table,run_sql,run_sql_rpc,render_mplsoccer`,
+  };
+  const response = await callOpenRouter(
+    {
+      model,
+      temperature: 0.1,
+      max_tokens: 700,
+      stream: false,
+      messages: [plannerSystem, plannerContext, user],
+    },
+    apiKey
+  );
+  const raw = response?.choices?.[0]?.message?.content || "";
+  const parsed = parsePlanV1(raw);
+  return { raw, parsed };
 }
 function seasonLikePattern(value) {
   const cleaned = String(value || "").replace(/[^0-9]/g, "");
@@ -2929,6 +3397,88 @@ function buildToolsSchema() {
   ];
 }
 
+async function executePlanToolStep(step, env, schema, orchestrationContext) {
+  const toolName = step?.tool;
+  const args = step?.args || {};
+  if (toolName === "get_schema") return getSchemaResult(args, schema);
+  if (toolName === "get_semantic_hints") return getSemanticHints(env);
+  if (toolName === "query_public_table") return queryPublicTable(args, env, schema);
+  if (toolName === "count_public_table") return countPublicTable(args, env, schema);
+  if (toolName === "aggregate_public_table") return aggregatePublicTable(args, env, schema);
+  if (toolName === "run_sql") return executeSqlQuery(args?.query || "", env, schema);
+  if (toolName === "run_sql_rpc") return runSqlRpc(args?.query || "", env);
+  if (toolName === "render_mplsoccer") {
+    let renderArgs = { ...args };
+    if (!renderArgs.query && Array.isArray(orchestrationContext?.last_rows) && orchestrationContext.last_rows.length) {
+      renderArgs.data = orchestrationContext.last_rows;
+    }
+    if (!renderArgs.chart_type && orchestrationContext?.plan?.vis_recommendation?.chart_type) {
+      renderArgs.chart_type = orchestrationContext.plan.vis_recommendation.chart_type;
+    }
+    return renderMplSoccer(renderArgs, env);
+  }
+  return { error: `Unsupported tool in plan: ${toolName}` };
+}
+
+function compactToolResults(toolResults) {
+  return toolResults.map((r) => {
+    const output = r.output || {};
+    if (output?.image_base64) {
+      return {
+        tool: r.tool,
+        summary: {
+          row_count: output.row_count || 0,
+          data_fields: output.data_fields || [],
+          has_image: true,
+        },
+      };
+    }
+    if (Array.isArray(output?.data)) {
+      return {
+        tool: r.tool,
+        summary: {
+          rows: output.data.length,
+          sample: output.data.slice(0, 5),
+        },
+      };
+    }
+    return { tool: r.tool, summary: output };
+  });
+}
+
+async function buildFinalGroundedAnswer({
+  userPrompt,
+  plan,
+  toolResults,
+  apiKey,
+  model,
+}) {
+  const compact = compactToolResults(toolResults);
+  const response = await callOpenRouter(
+    {
+      model,
+      temperature: 0.2,
+      max_tokens: 320,
+      stream: false,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a football analytics assistant. Use ONLY provided tool outputs. No fabricated stats. If insufficient data, say what is missing. Always end with VIS_RECOMMENDATION: <type> - <reason>.",
+        },
+        {
+          role: "user",
+          content:
+            `User request: ${userPrompt}\nPlan: ${JSON.stringify(plan)}\nTool outputs: ${JSON.stringify(compact)}`,
+        },
+      ],
+    },
+    apiKey
+  );
+  const text = response?.choices?.[0]?.message?.content || "I couldn't complete the analysis.";
+  return sanitizeAnalysisText(text) || text;
+}
+
 function getSchemaResult(args, schema) {
   const tableName = args?.table;
   if (tableName) {
@@ -3046,6 +3596,25 @@ async function handleHealth(req, res) {
 
   const allOk = results.openrouter.ok && results.supabase.ok && results.mplsoccer.ok;
   sendJson(res, allOk ? 200 : 503, { status: allOk ? "ok" : "degraded", services: results });
+}
+
+function handlePlannerV2Status(req, res) {
+  const failRate = plannerV2Guard.total ? plannerV2Guard.failed / plannerV2Guard.total : 0;
+  sendJson(res, 200, {
+    planner_v2: {
+      env_enabled: PLANNER_V2_ENABLED,
+      shadow_enabled: PLANNER_V2_SHADOW,
+      rollout_percent: PLANNER_V2_ROLLOUT_PERCENT,
+      guard: {
+        total: plannerV2Guard.total,
+        failed: plannerV2Guard.failed,
+        fail_rate: Number(failRate.toFixed(4)),
+        enabled_override: plannerV2Guard.enabledOverride,
+        disabled_at: plannerV2Guard.disabledAt,
+        last_error: plannerV2Guard.lastError,
+      },
+    },
+  });
 }
 
 async function handleVoiceTool(req, res) {
@@ -3208,7 +3777,7 @@ async function proxyChat(req, res) {
     }
 
     try {
-      const memory = getMemory();
+      let memory = getMemory();
       const source = payload?.source || "chat";
       if (Array.isArray(payload.messages) && source !== "voice") {
         const lastUserIndex = getLastUserMessageIndex(payload.messages);
@@ -3262,7 +3831,8 @@ async function proxyChat(req, res) {
       logTrace(requestId, "prompt_received", { source, prompt: lastQuestionRaw });
       const cleanedQuestion = stripGreetingPreamble(lastQuestionRaw);
       const pendingResult = handlePendingClarification(cleanedQuestion);
-      if (pendingResult?.question) {
+      const plannerV2ForThisRequest = shouldRoutePlannerV2(requestId);
+      if (pendingResult?.question && !plannerV2ForThisRequest) {
         sendAssistantReply(res, pendingResult.question);
         logTrace(requestId, "clarification_sent", { question: pendingResult.question });
         return;
@@ -3281,7 +3851,7 @@ async function proxyChat(req, res) {
       orchestration.state = "PLAN";
       orchestration.id = requestId;
       orchestration.raw_prompt = lastQuestionRaw;
-      if (orchestration?.clarification) {
+      if (orchestration?.clarification && !plannerV2ForThisRequest) {
         const candidate = extractEntityCandidate(lastQuestionRaw);
         if (candidate && !memory.aliases?.[candidate]) {
           savePending({ kind: "alias", key: candidate, original: lastQuestionRaw });
@@ -3301,10 +3871,89 @@ async function proxyChat(req, res) {
         logTrace(requestId, "schema_prefetched");
       }
       const actionPlan = buildActionPlan(lastQuestionRaw, memory);
-      if (actionPlan?.clarification) {
+      if (actionPlan?.clarification && !plannerV2ForThisRequest) {
         sendAssistantReply(res, actionPlan.clarification);
         logTrace(requestId, "clarification_sent", { question: actionPlan.clarification });
         return;
+      }
+
+      const runPlannerV2 = async (mode = "execute") => {
+        const resolver = await resolveEntitiesV2(lastQuestionRaw, env, memory);
+        memory = resolver.updated_memory || memory;
+        logTrace(requestId, "entity_resolution_v2", {
+          mode,
+          mentions: resolver.mentions?.length || 0,
+          confidence: resolver.resolution_confidence,
+          latency_ms: resolver.latency_ms,
+        });
+        const promptForPlanner = resolver.resolved_prompt || lastQuestionRaw;
+        const planner = await generatePlanV1({
+          prompt: promptForPlanner,
+          resolverResult: resolver,
+          env,
+          apiKey,
+          model: payload.model || "openai/gpt-4o-mini",
+        });
+        const validation = validatePlanV1(planner.parsed);
+        if (!validation.ok) {
+          logTrace(requestId, "planner_v2_invalid", { error: validation.error, raw: planner.raw });
+          throw new Error(`planner_v2_invalid: ${validation.error}`);
+        }
+        const compiled = compilePlanV1(planner.parsed);
+        logTrace(requestId, "planner_v2_compiled", {
+          mode,
+          tools: compiled.map((c) => c.tool),
+          tool_calls: compiled.length,
+        });
+        if (mode === "shadow") return { resolver, plan: planner.parsed, compiled };
+
+        const schema = await fetchSchema(env);
+        const toolResults = [];
+        let imageAttachment = null;
+        let lastRows = [];
+        for (const step of compiled) {
+          const output = await executePlanToolStep(step, env, schema, {
+            plan: planner.parsed,
+            last_rows: lastRows,
+          });
+          toolResults.push({ tool: step.tool, purpose: step.purpose, output });
+          if (Array.isArray(output?.data)) lastRows = output.data;
+          if (output?.image_base64) imageAttachment = output;
+        }
+
+        const finalText = await buildFinalGroundedAnswer({
+          userPrompt: lastQuestionRaw,
+          plan: planner.parsed,
+          toolResults,
+          apiKey,
+          model: payload.model || "openai/gpt-4o-mini",
+        });
+        sendAssistantReply(res, finalText, imageAttachment);
+        logTrace(requestId, "planner_v2_response_sent", {
+          tool_calls: compiled.length,
+          has_image: Boolean(imageAttachment),
+          selected_entities: resolver.mentions?.map((m) => m.selected?.value) || [],
+        });
+        return { resolver, plan: planner.parsed, compiled };
+      };
+
+      if (shouldRoutePlannerV2(requestId)) {
+        try {
+          await runPlannerV2("execute");
+          markPlannerV2Outcome(true);
+          return;
+        } catch (error) {
+          markPlannerV2Outcome(false, error.message || String(error));
+          logTrace(requestId, "planner_v2_fallback", { reason: error.message || String(error) });
+        }
+      }
+      if (PLANNER_V2_SHADOW) {
+        runPlannerV2("shadow")
+          .then(() => markPlannerV2Outcome(true))
+          .catch((error) => {
+            markPlannerV2Outcome(false, error.message || String(error));
+            logTrace(requestId, "planner_v2_shadow_error", { reason: error.message || String(error) });
+          });
       }
 
       const arrowsRequested = /arrow|arrows|trajectory|trajector|direction/i.test(lastQuestionRaw);
@@ -4490,6 +5139,15 @@ async function proxyChat(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith("/api/planner_v2/status")) {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { error: "Method not allowed" });
+      return;
+    }
+    handlePlannerV2Status(req, res);
+    return;
+  }
+
   if (req.url.startsWith("/api/health")) {
     handleHealth(req, res).catch((error) =>
       sendJson(res, 500, { status: "error", error: error.message || String(error) })
