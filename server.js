@@ -321,6 +321,83 @@ function parsePlanV1(raw) {
   }
 }
 
+function inferContextIntentFromPrompt(prompt) {
+  const p = String(prompt || "").toLowerCase();
+  if (/weakness|vulnerable|concede|exploit/.test(p)) return "weakness_profile";
+  if (/press|pressing|counter-press/.test(p)) return "pressing_profile";
+  if (/transition|counter/.test(p)) return "transition_defense";
+  return "other";
+}
+
+function inferIntentFromPrompt(prompt) {
+  const p = String(prompt || "").toLowerCase();
+  if (/map|heatmap|chart|plot|visual|radar|pizza|shot map|pass map/.test(p)) return "visual";
+  if (/show|analy|compare|weakness|xg|shots|pressing|transition/.test(p)) return "database";
+  return "general";
+}
+
+function normalizePlanV1(plan, prompt, resolverResult) {
+  const fallbackPlan = {
+    version: "plan_v1",
+    intent: inferIntentFromPrompt(prompt),
+    context_intent: inferContextIntentFromPrompt(prompt),
+    entities: {
+      team: resolverResult?.mentions?.[0]?.selected?.type === "team_name"
+        ? resolverResult.mentions[0].selected.value
+        : null,
+      team_a: null,
+      team_b: null,
+      player: resolverResult?.mentions?.[0]?.selected?.type === "player_name"
+        ? resolverResult.mentions[0].selected.value
+        : null,
+      season: null,
+      match_scope: /last\s+\d+/i.test(prompt || "") ? "last_n" : "season",
+    },
+    metrics: [],
+    tool_sequence: [],
+    vis_recommendation: {
+      chart_type: /heatmap/i.test(prompt || "") ? "heatmap" : "shot_map",
+      reason: "Default fallback chart for this request type.",
+    },
+    confidence: Number(resolverResult?.resolution_confidence || 0.65),
+    assumptions: [],
+    fallback_if_empty: "relax filters and retry",
+  };
+  if (!plan || typeof plan !== "object") return fallbackPlan;
+  const merged = { ...fallbackPlan, ...plan };
+  merged.entities = { ...fallbackPlan.entities, ...(plan.entities || {}) };
+  if (!Array.isArray(merged.metrics)) merged.metrics = [];
+  if (!Array.isArray(merged.assumptions)) merged.assumptions = [];
+  if (!merged.fallback_if_empty) merged.fallback_if_empty = fallbackPlan.fallback_if_empty;
+  if (!merged.vis_recommendation || typeof merged.vis_recommendation !== "object") {
+    merged.vis_recommendation = fallbackPlan.vis_recommendation;
+  }
+  if (!Array.isArray(merged.tool_sequence)) {
+    merged.tool_sequence = [];
+  }
+  if (!merged.tool_sequence.length && Array.isArray(plan.steps)) {
+    merged.tool_sequence = plan.steps.map((s) => ({
+      tool: s?.tool,
+      purpose: s?.purpose || "",
+      args_template: s?.args_template || s?.params || {},
+    }));
+  }
+  if (!merged.tool_sequence.length) {
+    merged.tool_sequence = [
+      { tool: "run_sql_rpc", purpose: "retrieve relevant rows", args_template: { query: "SELECT ..." } },
+    ];
+    if (merged.intent === "visual") {
+      merged.tool_sequence.push({
+        tool: "render_mplsoccer",
+        purpose: "render chart",
+        args_template: { chart_type: merged.vis_recommendation?.chart_type || "shot_map" },
+      });
+    }
+  }
+  if (!merged.version) merged.version = "plan_v1";
+  return merged;
+}
+
 function validatePlanV1(plan) {
   if (!plan || typeof plan !== "object") return { ok: false, error: "Plan missing" };
   const required = [
@@ -1965,7 +2042,8 @@ async function generatePlanV1({
   );
   const raw = response?.choices?.[0]?.message?.content || "";
   const parsed = parsePlanV1(raw);
-  return { raw, parsed };
+  const normalized = normalizePlanV1(parsed, prompt, resolverResult);
+  return { raw, parsed: normalized };
 }
 function seasonLikePattern(value) {
   const cleaned = String(value || "").replace(/[^0-9]/g, "");
