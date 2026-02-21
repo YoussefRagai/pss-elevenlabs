@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "training" / "out" / "strict_eval_report.json"
-API_URL = "http://127.0.0.1:8080/api/chat"
+API_URL = os.getenv("EVAL_CHAT_URL", "http://127.0.0.1:8080/api/chat")
 
 CASES = [
     {"prompt": "Show me the weaknesses of Team X in the last 5 matches.", "expect_context": "weakness"},

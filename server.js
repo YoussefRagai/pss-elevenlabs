@@ -304,7 +304,18 @@ function parsePlanV1(raw) {
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   try {
-    return JSON.parse(jsonMatch[0]);
+    let parsed = JSON.parse(jsonMatch[0]);
+    if (parsed?.plan_v1 && typeof parsed.plan_v1 === "object") {
+      parsed = parsed.plan_v1;
+    }
+    if (!parsed?.tool_sequence && Array.isArray(parsed?.steps)) {
+      parsed.tool_sequence = parsed.steps.map((s) => ({
+        tool: s?.tool,
+        purpose: s?.purpose || "",
+        args_template: s?.args_template || s?.params || {},
+      }));
+    }
+    return parsed;
   } catch (error) {
     return null;
   }
@@ -3779,7 +3790,8 @@ async function proxyChat(req, res) {
     try {
       let memory = getMemory();
       const source = payload?.source || "chat";
-      if (Array.isArray(payload.messages) && source !== "voice") {
+      const plannerV2Requested = PLANNER_V2_ENABLED || PLANNER_V2_SHADOW;
+      if (Array.isArray(payload.messages) && source !== "voice" && !plannerV2Requested) {
         const lastUserIndex = getLastUserMessageIndex(payload.messages);
         if (lastUserIndex >= 0) {
           const rawText = payload.messages[lastUserIndex]?.content || "";
@@ -3800,7 +3812,7 @@ async function proxyChat(req, res) {
           }
         }
       }
-      if (source === "voice" && Array.isArray(payload.messages)) {
+      if (source === "voice" && Array.isArray(payload.messages) && !plannerV2Requested) {
         const lastUserIndex = getLastUserMessageIndex(payload.messages);
         if (lastUserIndex >= 0) {
           const rawVoice = payload.messages[lastUserIndex]?.content || "";
